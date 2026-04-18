@@ -682,13 +682,11 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSav
   const [parsing, setParsing] = useState(false);
   const [f, setF] = useState(draft?.f || null);
   const [parsed, setParsed] = useState(draft?.parsed || null);
+  const [stops, setStops] = useState(draft?.stops || []);
   const [error, setError] = useState(null);
   const fileRef = useRef();
 
-  // Save draft whenever f changes
-  useEffect(() => {
-    if (f) onSaveDraft({ f, parsed });
-  }, [f]);
+  useEffect(() => { if (f) onSaveDraft({ f, parsed, stops }); }, [f, stops]);
 
   const handleFile = async (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -696,11 +694,13 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSav
     try {
       const base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = ev => res(ev.target.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
       const mediaType = file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-      const result = await parseWithAI(base64, mediaType, `You are reading a trucking rate confirmation document. Extract load information. Return ONLY valid JSON:\n{"loadNum":"load or reference number","origin":"FIRST pickup city, ST only","dest":"FINAL delivery city, ST only","miles":ONLY if clearly stated as total miles in the document otherwise null,"rate":total rate as a single number,"detention":detention amount or null,"broker":"broker or shipper company name","brokerMC":"The BROKER or SHIPPER MC number only — NOT the carrier or truck company MC. If you cannot clearly identify the broker MC number leave it null","pickupDate":"YYYY-MM-DD or null","commodity":"what is being hauled"}\nIMPORTANT: For miles - only use the number if the document explicitly states total miles. Do NOT calculate or add up stop distances. If unsure leave as null. For multi-stop loads use first pickup as origin and last delivery as dest. For brokerMC - only include if clearly labeled as broker MC or shipper MC, never use the carrier/truck company MC. Return ONLY the JSON.`);
+      const result = await parseWithAI(base64, mediaType, `You are reading a trucking rate confirmation document. Extract ALL information. Return ONLY valid JSON:\n{"loadNum":"load or reference number","origin":"FIRST pickup city, ST only","dest":"FINAL delivery city, ST only","miles":ONLY if clearly stated as total miles otherwise null,"rate":total rate as number,"detention":detention amount or null,"broker":"broker company name","brokerMC":"BROKER MC number only NOT carrier MC, null if unclear","pickupDate":"YYYY-MM-DD or null","commodity":"what is being hauled","stops":[{"stopNum":1,"type":"Pickup or Delivery","facilityName":"company name","address":"street address","city":"city","state":"ST","date":"YYYY-MM-DD or null","time":"HH:MM or null","notes":"appointment notes"}]}\nIMPORTANT: Extract ALL stops including pickups and deliveries in order. For brokerMC only include if clearly the broker MC not carrier MC. Return ONLY the JSON.`);
       if (result && (result.loadNum || result.rate || result.origin)) {
         setParsed(result);
+        const extractedStops = Array.isArray(result.stops) ? result.stops : [];
+        setStops(extractedStops.map((s, i) => ({ id: uid(), stopNum: i + 1, type: s.type || "Delivery", facilityName: s.facilityName || "", address: s.address || "", city: s.city || "", state: s.state || "", date: s.date || "", time: s.time || "", notes: s.notes || "" })));
         setF({ date: result.pickupDate || today(), loadNum: result.loadNum || "", origin: result.origin || "", dest: result.dest || "", miles: result.miles ? String(result.miles) : "", rate: result.rate ? String(result.rate) : "", detention: result.detention ? String(result.detention) : "0", driver: "", driverCpm: "0", driverOopExpenses: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Ready to Factor", brokerName: result.broker || "", brokerMC: result.brokerMC || "" });
-      } else setError("Could not read document. Make sure it's a clear PDF or photo of the rate con. Try uploading a PDF directly if using a photo.");
+      } else setError("Could not read document. Make sure it's a clear PDF or photo. Try uploading a PDF directly.");
     } catch { setError("Error reading file. Please try again."); }
     setParsing(false);
   };
@@ -710,19 +710,37 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSav
     setF(p => ({ ...p, driver: name, driverCpm: profile ? String(profile.cpm) : p.driverCpm }));
   };
 
+  const addStop = () => setStops(p => [...p, { id: uid(), stopNum: p.length + 1, type: "Delivery", facilityName: "", address: "", city: "", state: "", date: "", time: "", notes: "" }]);
+  const removeStop = (id) => setStops(p => p.filter(s => s.id !== id).map((s, i) => ({ ...s, stopNum: i + 1 })));
+  const updateStop = (id, field, val) => setStops(p => p.map(s => s.id === id ? { ...s, [field]: val } : s));
+
+  const stopTypeColor = { Pickup: "#2563eb", Delivery: "#16a34a", "Fuel Stop": "#d97706", "Drop & Hook": "#7c3aed" };
+
+  const saveWithStops = async () => {
+    onLoad(f);
+    // Save stops to load_stops table after load is created
+    if (stops.length > 0 && f.loadNum) {
+      try {
+        // We'll save stops after the load is saved — using load_num as reference
+        localStorage.setItem("pendingStops_" + f.loadNum, JSON.stringify(stops));
+      } catch {}
+    }
+    onClose();
+  };
+
   return (
-    <ModalShell title="🤖 Upload Rate Confirmation" onClose={onClose} wide>
+    <ModalShell title="🤖 Upload Rate Confirmation" onClose={onClose} extraWide>
       {!f ? (
         <>
           <div style={{ background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 10, padding: "14px 18px", marginBottom: 18 }}>
-            <div style={{ color: "#1e40af", fontWeight: 700, marginBottom: 4 }}>AI reads your rate con and fills everything — including broker info for factoring. Factoring status auto-set to "Ready to Factor".</div>
+            <div style={{ color: "#1e40af", fontWeight: 700 }}>AI reads your rate con — extracts ALL stops, broker info, and sets factoring to "Ready to Factor" automatically.</div>
           </div>
-          {parsing ? (<div style={{ textAlign: "center", padding: "40px 0" }}><div style={{ fontSize: 48, marginBottom: 16 }}>🤖</div><div style={{ color: "#d97706", fontWeight: 800, fontSize: 18 }}>Reading your rate confirmation...</div></div>)
+          {parsing ? (<div style={{ textAlign: "center", padding: "40px 0" }}><div style={{ fontSize: 48, marginBottom: 16 }}>🤖</div><div style={{ color: "#d97706", fontWeight: 800, fontSize: 18 }}>Reading rate confirmation and extracting all stops...</div></div>)
             : (<>
               <div style={{ border: "2px dashed #d1d5db", borderRadius: 12, padding: 40, textAlign: "center", cursor: "pointer", background: "#f9fafb" }} onClick={() => fileRef.current?.click()} onMouseEnter={e => e.currentTarget.style.borderColor = "#d97706"} onMouseLeave={e => e.currentTarget.style.borderColor = "#d1d5db"}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
                 <div style={{ color: "#374151", fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Click to upload Rate Confirmation</div>
-                <div style={{ color: "#9ca3af", fontSize: 13 }}>PDF, JPG, PNG, or photo</div>
+                <div style={{ color: "#9ca3af", fontSize: 13 }}>PDF, JPG, PNG — single or multi-stop loads</div>
                 <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,image/*" style={{ display: "none" }} onChange={handleFile} />
               </div>
               {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "12px 16px", marginTop: 16, color: "#dc2626", fontSize: 13 }}>⚠️ {error}</div>}
@@ -731,9 +749,11 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSav
       ) : (
         <>
           <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-            <div style={{ color: "#166534", fontWeight: 700 }}>✅ Rate con read! Factoring set to "Ready to Factor". Review and correct:</div>
+            <div style={{ color: "#166534", fontWeight: 700 }}>✅ Rate con read! {stops.length > 0 ? `${stops.length} stops extracted.` : ""} Review and correct:</div>
             {parsed?.broker && <div style={{ color: "#15803d", fontSize: 13, marginTop: 4 }}>🏢 {parsed.broker} {parsed?.brokerMC && `· MC# ${parsed.brokerMC}`}</div>}
           </div>
+
+          {/* Basic load info */}
           <div style={fgrid}>
             <Field label="Load Number" value={f.loadNum} onChange={v => setF(p => ({ ...p, loadNum: v }))} />
             <Field label="Date" type="date" value={f.date} onChange={v => setF(p => ({ ...p, date: v }))} />
@@ -741,11 +761,66 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSav
             <Field label="Trailer" value={f.trailerId || ""} onChange={v => setF(p => ({ ...p, trailerId: v }))} options={[{ value: "", label: "— None —" }, ...trailers.map(t => ({ value: t.id, label: t.name }))]} />
             <Field label="Broker / Customer" value={f.brokerName} onChange={v => setF(p => ({ ...p, brokerName: v }))} />
             <Field label="Broker MC#" value={f.brokerMC} onChange={v => setF(p => ({ ...p, brokerMC: v }))} />
-            <Field label="Origin" value={f.origin} onChange={v => setF(p => ({ ...p, origin: v }))} />
-            <Field label="Destination" value={f.dest} onChange={v => setF(p => ({ ...p, dest: v }))} />
-            <Field label="Miles" type="number" value={f.miles} onChange={v => setF(p => ({ ...p, miles: v }))} />
+            <Field label="Miles" type="number" value={f.miles} onChange={v => setF(p => ({ ...p, miles: v }))} placeholder="Enter total miles" />
             <Field label="Rate ($)" type="number" value={f.rate} onChange={v => setF(p => ({ ...p, rate: v }))} />
           </div>
+
+          {/* STOPS SECTION */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ color: "#374151", fontWeight: 800, fontSize: 14 }}>📍 Stops ({stops.length})</div>
+              <button onClick={addStop} style={{ background: "#eff6ff", color: "#2563eb", border: "1.5px solid #2563eb", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>+ Add Stop</button>
+            </div>
+
+            {stops.length === 0 && (
+              <div style={{ background: "#f9fafb", border: "2px dashed #e5e7eb", borderRadius: 10, padding: "20px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                No stops extracted — click "+ Add Stop" to add manually
+              </div>
+            )}
+
+            {stops.map((s, i) => (
+              <div key={s.id} style={{ background: "#fff", border: `2px solid ${stopTypeColor[s.type] || "#e5e7eb"}`, borderRadius: 12, padding: "16px", marginBottom: 10, position: "relative" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ background: stopTypeColor[s.type] || "#6b7280", color: "#fff", borderRadius: "50%", width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 13 }}>{s.stopNum}</div>
+                    <select value={s.type} onChange={e => updateStop(s.id, "type", e.target.value)} style={{ ...inputStyle, width: "auto", fontWeight: 700, color: stopTypeColor[e => e] || "#374151", border: `1.5px solid ${stopTypeColor[s.type] || "#e5e7eb"}` }}>
+                      {["Pickup", "Delivery", "Fuel Stop", "Drop & Hook"].map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => removeStop(s.id)} style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Remove</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={labelStyle}>Facility Name</label>
+                    <input value={s.facilityName} onChange={e => updateStop(s.id, "facilityName", e.target.value)} placeholder="e.g. Home Depot #3202" style={inputStyle} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={labelStyle}>City</label>
+                    <input value={s.city} onChange={e => updateStop(s.id, "city", e.target.value)} placeholder="City" style={inputStyle} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={labelStyle}>State</label>
+                    <input value={s.state} onChange={e => updateStop(s.id, "state", e.target.value)} placeholder="ST" style={{ ...inputStyle, width: "100%" }} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={labelStyle}>Appt Date</label>
+                    <input type="date" value={s.date} onChange={e => updateStop(s.id, "date", e.target.value)} style={inputStyle} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={labelStyle}>Appt Time</label>
+                    <input value={s.time} onChange={e => updateStop(s.id, "time", e.target.value)} placeholder="e.g. 7:00 AM" style={inputStyle} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={labelStyle}>Address / Notes</label>
+                    <input value={s.address || s.notes} onChange={e => updateStop(s.id, "notes", e.target.value)} placeholder="Street address or notes" style={inputStyle} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
           {/* Driver section */}
           <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
             <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>👤 ASSIGN DRIVER</div>
@@ -765,9 +840,10 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSav
               </div>
             </div>
           </div>
+
           <div style={{ display: "flex", gap: 12 }}>
-            <button onClick={() => { setF(null); setParsed(null); }} style={{ flex: 1, background: "#f3f4f6", border: "1.5px solid #e5e7eb", borderRadius: 10, padding: "12px", fontWeight: 700, cursor: "pointer", fontSize: 14, color: "#374151", marginTop: 10 }}>📄 Try Different File</button>
-            <SaveBtn onClick={() => { onLoad(f); onClose(); }} label="✅ Save This Load" loading={false} />
+            <button onClick={() => { setF(null); setParsed(null); setStops([]); }} style={{ flex: 1, background: "#f3f4f6", border: "1.5px solid #e5e7eb", borderRadius: 10, padding: "12px", fontWeight: 700, cursor: "pointer", fontSize: 14, color: "#374151", marginTop: 10 }}>📄 Try Different File</button>
+            <SaveBtn onClick={saveWithStops} label={`✅ Save Load${stops.length > 0 ? ` + ${stops.length} Stops` : ""}`} loading={false} />
           </div>
         </>
       )}
@@ -969,8 +1045,9 @@ export default function App() {
   const saveLoadDirect = async (f) => {
     if (!f.loadNum || !f.rate) { showToast("Missing load # or rate", "error"); return; }
     setSaving(true);
+    const loadId = uid();
     const { error } = await db.from("loads").upsert({
-      id: uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest,
+      id: loadId, date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest,
       miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0),
       driver: f.driver || "", driver_cpm: Number(f.driverCpm || 0), driver_oop_expenses: 0,
       is_team_load: false, driver2: "", driver2_cpm: 0,
@@ -980,8 +1057,19 @@ export default function App() {
       factoring_status: f.factoringStatus || "Ready to Factor",
       broker_name: f.brokerName || "", broker_mc: f.brokerMC || ""
     });
-    if (error) { console.error("saveLoadDirect error:", error); showToast("Save failed: " + error.message, "error"); }
-    else { await fetchAll(); showToast("Load saved from rate con ✓"); }
+    if (error) { console.error("saveLoadDirect error:", error); showToast("Save failed: " + error.message, "error"); setSaving(false); return; }
+    // Save stops if any were stored
+    try {
+      const pendingStops = localStorage.getItem("pendingStops_" + f.loadNum);
+      if (pendingStops) {
+        const stopsArr = JSON.parse(pendingStops);
+        if (stopsArr.length > 0) {
+          await db.from("load_stops").insert(stopsArr.map(s => ({ id: s.id, load_id: loadId, stop_number: s.stopNum, stop_type: s.type, facility_name: s.facilityName, address: s.notes || s.address, city: s.city, state: s.state, appointment_date: s.date, appointment_time: s.time, notes: s.notes })));
+        }
+        localStorage.removeItem("pendingStops_" + f.loadNum);
+      }
+    } catch {}
+    await fetchAll(); showToast("Load saved from rate con ✓");
     setSaving(false);
   };
 
