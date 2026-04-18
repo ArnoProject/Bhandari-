@@ -349,7 +349,10 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
     setOriginCoords(city);
     if (destCoords) { setCalcingMiles(true); const m = await calcMiles(city, destCoords); if (m) setF(p => ({ ...p, miles: String(m) })); setCalcingMiles(false); }
     // Auto-calc deadhead from last drop to this pickup
-    if (f.deadheadOrigin) await calcDeadheadMiles(f.deadheadOrigin, city.label);
+    if (f.deadheadOrigin) {
+      setF(p => ({ ...p, origin: city.label }));
+      await calcDeadheadMiles(f.deadheadOrigin, city.label);
+    }
   };
   const handleDestSelect = async (city) => { setDestCoords(city); if (originCoords) { setCalcingMiles(true); const m = await calcMiles(originCoords, city); if (m) setF(p => ({ ...p, miles: String(m) })); setCalcingMiles(false); } };
 
@@ -403,28 +406,30 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
 
       {/* Deadhead Section */}
       <div style={{ background: "#f5f3ff", border: "1.5px solid #ddd6fe", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
-        <div style={{ color: "#7c3aed", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>🗺️ DEADHEAD MILES</div>
+        <div style={{ color: "#7c3aed", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>🗺️ DEADHEAD MILES {calcingDeadhead ? "⏳ Calculating..." : ""}</div>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr", gap: 12 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <label style={labelStyle}>Deadhead From (Last Drop)</label>
-            <input value={f.deadheadOrigin || ""} onChange={e => setF(p => ({ ...p, deadheadOrigin: e.target.value }))} placeholder="City where truck is coming from" style={inputStyle} />
-            {lastDrop && <div style={{ color: "#7c3aed", fontSize: 11 }}>✅ Auto-filled from last delivery</div>}
+            <label style={labelStyle}>From (Last Drop) {lastDrop ? "✅ Auto-filled" : ""}</label>
+            <input value={f.deadheadOrigin || ""} onChange={e => setF(p => ({ ...p, deadheadOrigin: e.target.value }))} placeholder="Auto-fills from truck's last delivery" style={{ ...inputStyle, borderColor: f.deadheadOrigin ? "#7c3aed" : "#d1d5db" }} />
+            {!lastDrop && !f.deadheadOrigin && <div style={{ color: "#9ca3af", fontSize: 11 }}>💡 Select truck to auto-fill</div>}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <label style={labelStyle}>Deadhead To (This Pickup)</label>
-            <input value={f.origin || ""} readOnly style={{ ...inputStyle, background: "#f3f4f6", color: "#6b7280" }} placeholder="Will fill when you pick origin city" />
+            <label style={labelStyle}>To (This Pickup) {f.origin ? "✅ Auto-filled" : ""}</label>
+            <input value={f.origin || ""} readOnly style={{ ...inputStyle, background: "#f3f4f6", color: "#6b7280" }} placeholder="Auto-fills when origin city selected" />
+            {!f.origin && <div style={{ color: "#9ca3af", fontSize: 11 }}>💡 Pick origin city below to auto-fill</div>}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <label style={labelStyle}>Deadhead Miles {calcingDeadhead ? "⏳" : ""}</label>
-            <input type="number" value={f.deadheadMiles || "0"} onChange={e => setF(p => ({ ...p, deadheadMiles: e.target.value }))} style={inputStyle} />
-            {deadheadMi > 0 && <div style={{ color: "#7c3aed", fontSize: 11 }}>Cost: {fmt$(deadheadMi * Number(f.driverCpm || 0))}</div>}
+            <label style={labelStyle}>Deadhead Miles</label>
+            <input type="number" value={f.deadheadMiles || "0"} onChange={e => setF(p => ({ ...p, deadheadMiles: e.target.value }))} style={{ ...inputStyle, borderColor: deadheadMi > 0 ? "#7c3aed" : "#d1d5db" }} />
+            {deadheadMi > 0 && <div style={{ color: "#7c3aed", fontSize: 11 }}>= {fmt$(deadheadMi * Number(f.driverCpm || 0))} driver cost</div>}
           </div>
         </div>
-        {f.deadheadOrigin && f.origin && deadheadMi === 0 && (
+        {f.deadheadOrigin && f.origin && Number(f.deadheadMiles || 0) === 0 && !calcingDeadhead && (
           <button onClick={() => calcDeadheadMiles(f.deadheadOrigin, f.origin)} style={{ marginTop: 10, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>
-            🔄 Auto-Calculate Deadhead Miles
+            🔄 Calculate Deadhead Miles
           </button>
         )}
+        {deadheadMi > 0 && f.origin && f.deadheadOrigin && <div style={{ color: "#7c3aed", fontSize: 11, marginTop: 8 }}>✅ {f.deadheadOrigin} → {f.origin} · {fmtMi(deadheadMi)} deadhead miles</div>}
       </div>
 
       {/* Driver section */}
@@ -1467,15 +1472,16 @@ export default function App() {
         <PrimaryBtn onClick={() => { setEditItem(null); setModal("load"); }}>+ Add Load</PrimaryBtn>
       </div></div>
       <TruckBar />
-      <div style={S.grid(5)}><StatCard label="In Transit" value={filtLoads.filter(l => l.status === "In Transit").length} accent="#d97706" icon="🚛" /><StatCard label="Pending" value={filtLoads.filter(l => l.status === "Pending").length} accent="#6b7280" icon="⏳" /><StatCard label="Delivered" value={filtLoads.filter(l => l.status === "Delivered").length} accent="#16a34a" icon="✅" /><StatCard label="Ready to Factor" value={filtLoads.filter(l => l.factoringStatus === "Ready to Factor").length} accent="#2563eb" icon="💼" /><StatCard label="Total Rev" value={fmt$(totalRev)} accent="#16a34a" icon="💰" /></div>
-      <div style={S.tableWrap}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Load#", "Date", "Truck", "Trailer", "Origin → Dest", "Miles", "Rate", "Lumper", "Driver", "Profit", "Factoring", "Status", ""].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>
+      <div style={S.grid(5)}><StatCard label="In Transit" value={filtLoads.filter(l => l.status === "In Transit").length} accent="#d97706" icon="🚛" /><StatCard label="Pending" value={filtLoads.filter(l => l.status === "Pending").length} accent="#6b7280" icon="⏳" /><StatCard label="Delivered" value={filtLoads.filter(l => l.status === "Delivered").length} accent="#16a34a" icon="✅" /><StatCard label="Total Loaded Mi" value={fmtMi(filtLoads.reduce((s,l) => s + Number(l.miles||0), 0))} sub={`DH: ${fmtMi(filtLoads.reduce((s,l) => s + Number(l.deadheadMiles||0), 0))} mi`} accent="#2563eb" icon="🛣️" /><StatCard label="Total Rev" value={fmt$(totalRev)} accent="#16a34a" icon="💰" /></div>
+      <div style={S.tableWrap}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Load#", "Date", "Truck", "Trailer", "Origin → Dest", "Loaded Mi", "DH Mi", "Rate", "Driver", "Profit", "Factoring", "Status", ""].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>
         {filtLoads.length === 0 && <tr><td colSpan={13} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No loads yet.</td></tr>}
         {filtLoads.map(l => {
           const g = Number(l.rate || 0) + Number(l.detention || 0);
           const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
-          const dp = Number(l.driverCpm || 0) * splitMi + Number(l.driver2Cpm || 0) * (l.isTeamLoad ? splitMi : 0);
+          const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
+          const dp = Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driver2Cpm || 0) * (l.isTeamLoad ? (splitMi + splitDH) : 0);
           const lumperNet = l.lumperPaidBy === "Out of Pocket" && l.lumperReimbursed !== "Yes" ? Number(l.lumperCost || 0) : 0;
-          const pr = g - dp - lumperNet - Number(l.toll || 0);
+          const pr = g - dp - lumperNet - Number(l.toll || 0) - Number(l.driverOopExpenses || 0);
           const truck = truckById(l.truckId);
           const trailer = trailerById(l.trailerId);
           return (<tr key={l.id} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
@@ -1483,9 +1489,10 @@ export default function App() {
             <TD>{l.date}</TD>
             <TD>{truck && <Badge label={truck.name} color={truck.color} />}</TD>
             <TD>{trailer && <Badge label={trailer.name} color={trailer.color || "#16a34a"} />}</TD>
-            <TD>{l.origin} → {l.dest}</TD>
-            <TD mono>{fmtMi(l.miles)}</TD><TD mono>{fmt$(l.rate)}</TD>
-            <TD mono color={lumperNet > 0 ? "#dc2626" : "#9ca3af"}>{lumperNet > 0 ? fmt$(lumperNet) : "—"}</TD>
+            <TD>{l.origin?.split(",")[0]} → {l.dest?.split(",")[0]}</TD>
+            <TD mono>{fmtMi(l.miles)}</TD>
+            <TD mono color={Number(l.deadheadMiles || 0) > 0 ? "#7c3aed" : "#9ca3af"}>{Number(l.deadheadMiles || 0) > 0 ? fmtMi(l.deadheadMiles) : "—"}</TD>
+            <TD mono>{fmt$(l.rate)}</TD>
             <TD><div>{l.driver}</div>{l.isTeamLoad && l.driver2 && <div style={{ color: "#7c3aed", fontSize: 11 }}>+ {l.driver2}</div>}</TD>
             <TD mono color={pr >= 0 ? "#16a34a" : "#dc2626"} bold>{fmt$(pr)}</TD>
             <TD><FactoringBadge s={l.factoringStatus || "Not Submitted"} /></TD>
