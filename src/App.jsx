@@ -299,8 +299,11 @@ const MaintenanceForm = ({ onClose, onSave, saving, trucks, trailers, editItem }
   );
 };
 
-const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem, loads }) => {
-  const [f, setF] = useState(editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverCpm: "0", driverOopExpenses: "0", isTeamLoad: false, driver2: "", driver2Cpm: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "", deadheadMiles: "0", deadheadOrigin: "" });
+const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem, loads, draft, onDraftChange }) => {
+  const [f, setF] = useState(draft || editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverCpm: "0", driverOopExpenses: "0", isTeamLoad: false, driver2: "", driver2Cpm: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "", deadheadMiles: "0", deadheadOrigin: "" });
+
+  // Save draft whenever form changes
+  useEffect(() => { if (onDraftChange && !editItem) onDraftChange(f); }, [f]);
   const [originCoords, setOriginCoords] = useState(null);
   const [destCoords, setDestCoords] = useState(null);
   const [calcingMiles, setCalcingMiles] = useState(false);
@@ -1105,6 +1108,10 @@ export default function App() {
   const [paystubDriver, setPaystubDriver] = useState("");
   const [paystubPeriod, setPaystubPeriod] = useState("weekly");
   const [rateConDraft, setRateConDraft] = useState(null);
+  const [loadDraft, setLoadDraft] = useState(null);
+  const [expenseDraft, setExpenseDraft] = useState(null);
+  const [fuelDraft, setFuelDraft] = useState(null);
+  const [invoiceDraft, setInvoiceDraft] = useState(null);
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1146,6 +1153,12 @@ export default function App() {
   };
 
   useEffect(() => { if (session) fetchAll(); }, [session]);
+  const closeModal = () => { setModal(null); setEditItem(null); };
+  const switchTab = (newTab) => {
+    // When switching tabs, keep modal open in background by just changing tab
+    // Modal stays mounted, form data preserved
+    setTab(newTab);
+  };
   const closeModal = () => { setModal(null); setEditItem(null); };
   const saveDirectClient = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("direct_clients").upsert({ id: editItem?.id || uid(), name: f.name, contact_name: f.contactName || "", email: f.email || "", phone: f.phone || "", address: f.address || "", payment_terms: f.paymentTerms || "Net 2", notes: f.notes || "", active: f.active !== false }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Client updated ✓" : "Client added ✓"); } setSaving(false); };
   const delDirectClient = async (id) => { if (!confirm("Delete this client?")) return; await db.from("direct_clients").delete().eq("id", id); await fetchAll(); showToast("Client deleted"); };
@@ -1567,7 +1580,8 @@ export default function App() {
   const Loads = () => (
     <>
       <div style={S.ph}><div><h1 style={S.h1}>Load Management</h1></div><div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {rateConDraft && <button onClick={() => setModal("rateCon")} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Draft Load</button>}
+        {rateConDraft && <button onClick={() => setModal("rateCon")} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Rate Con Draft</button>}
+        {loadDraft && !modal && <button onClick={() => { setEditItem(null); setModal("load"); }} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Load Draft</button>}
         <button onClick={() => { setRateConDraft(null); setModal("rateCon"); }} style={{ background: "#eff6ff", color: "#2563eb", border: "1.5px solid #2563eb", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>🤖 Upload Rate Con</button>
         <PrimaryBtn onClick={() => { setEditItem(null); setModal("load"); }}>+ Add Load</PrimaryBtn>
       </div></div>
@@ -1960,7 +1974,56 @@ export default function App() {
 
   const Reports = () => { const netMi = avgRPM - cpm; return (<><div style={S.ph}><h1 style={S.h1}>Reports & KPIs</h1></div><TruckBar /><div style={S.grid(4)}><StatCard label="Cost/Mile" value={"$" + fmtN(cpm)} sub="All-in CPM" accent="#dc2626" icon="⚙️" /><StatCard label="Revenue/Mile" value={"$" + fmtN(avgRPM)} sub="Gross RPM" accent="#16a34a" icon="💹" /><StatCard label="Net/Mile" value={"$" + fmtN(netMi)} sub="After all costs" accent={netMi >= 0 ? "#16a34a" : "#dc2626"} icon="🎯" /><StatCard label="Fuel%Rev" value={fmtN(totalRev ? totalFuel / totalRev * 100 : 0) + "%"} sub="Target <25%" accent="#7c3aed" icon="⛽" /></div><div style={S.card}><div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 16, textTransform: "uppercase" }}>KPI Benchmarks</div>{[{ l: "Revenue/Mile", v: avgRPM, target: 3.0, f: v => `$${fmtN(v)}`, note: "target $3.00+" }, { l: "Profit Margin", v: margin, target: 15, f: v => `${fmtN(v)}%`, note: "target 15%+" }, { l: "Cost/Mile", v: cpm, target: 2.5, f: v => `$${fmtN(v)}`, note: "target <$2.50", inv: true }, { l: "Fuel%Rev", v: totalRev ? totalFuel / totalRev * 100 : 0, target: 25, f: v => `${fmtN(v)}%`, note: "target <25%", inv: true }, { l: "Fleet MPG", v: mpg, target: 6.5, f: v => `${fmtN(v, 1)}`, note: "target 6.5+" }].map(k => { const good = k.inv ? k.v <= k.target : k.v >= k.target; const pct = Math.min(100, Math.abs((k.v / k.target) * 100)); return (<div key={k.l} style={{ marginBottom: 18 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ color: "#374151", fontSize: 13, fontWeight: 600 }}>{k.l}</span><span style={{ color: good ? "#16a34a" : "#dc2626", fontWeight: 700, fontFamily: "monospace" }}>{k.f(k.v)} <span style={{ color: "#9ca3af", fontSize: 10, fontWeight: 400 }}>({k.note})</span></span></div><div style={{ background: "#e5e7eb", borderRadius: 99, height: 7 }}><div style={{ width: `${pct}%`, height: "100%", background: good ? "#16a34a" : "#dc2626", borderRadius: 99 }} /></div></div>); })}</div></>); };
 
-  const DriverLoadsModal = () => { const dl = getPaystubLoads(paystubDriver); const pay = dl.reduce((s, l) => { const g = Number(l.rate || 0) + Number(l.detention || 0); return s + g * (Number(l.driverPct || 0) / 100); }, 0); return (<ModalShell title={`📋 ${paystubDriver} — ${paystubPeriod}`} onClose={closeModal} wide><div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={{ color: "#374151", fontWeight: 600 }}>{dl.length} loads · {fmt$(pay)} pay</div><PrimaryBtn onClick={() => printPaystub(paystubDriver, dl, paystubPeriod)} style={{ padding: "8px 16px", fontSize: 12 }}>🖨️ Print Paystub</PrimaryBtn></div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Load#", "Date", "Route", "Miles", "Rate", "Detention", "Driver Pay", "Status"].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>{dl.length === 0 && <tr><td colSpan={8} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No loads this period.</td></tr>}{dl.map(l => { const g = Number(l.rate || 0) + Number(l.detention || 0); const dp = g * (Number(l.driverPct || 0) / 100); return (<tr key={l.id}><TD color="#d97706" bold>{l.loadNum}</TD><TD>{l.date}</TD><TD>{l.origin} → {l.dest}</TD><TD mono>{fmtMi(l.miles)}</TD><TD mono>{fmt$(l.rate)}</TD><TD mono color="#7c3aed">{fmt$(l.detention)}</TD><TD mono color="#d97706" bold>{fmt$(dp)}</TD><TD><StatusBadge s={l.status} /></TD></tr>); })}</tbody></table></div></ModalShell>); };
+  const DriverLoadsModal = () => {
+    const dl = getPaystubLoads(paystubDriver);
+    const totalPay = dl.reduce((s, l) => {
+      const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+      const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
+      return s + Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driverOopExpenses || 0);
+    }, 0);
+    return (
+      <ModalShell title={`📋 ${paystubDriver} — ${paystubPeriod}`} onClose={closeModal} wide>
+        <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ color: "#374151", fontWeight: 600 }}>{dl.length} loads · <span style={{ color: "#d97706", fontWeight: 800 }}>{fmt$(totalPay)} pay</span></div>
+          <PrimaryBtn onClick={() => printPaystub(paystubDriver, dl, paystubPeriod)} style={{ padding: "8px 16px", fontSize: 12 }}>🖨️ Print Paystub</PrimaryBtn>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>{["Load#", "Date", "Route", "Loaded Mi", "DH Mi", "Rate", "Detention", "CPM", "Driver Pay", "Status"].map(h => <TH key={h}>{h}</TH>)}</tr></thead>
+            <tbody>
+              {dl.length === 0 && <tr><td colSpan={10} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No loads this period.</td></tr>}
+              {dl.map(l => {
+                const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+                const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
+                const dp = Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driverOopExpenses || 0);
+                return (
+                  <tr key={l.id} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                    <TD color="#d97706" bold>{l.loadNum}{l.isTeamLoad && <span style={{ background: "#7c3aed20", color: "#7c3aed", borderRadius: 4, padding: "1px 4px", fontSize: 9, marginLeft: 4 }}>TEAM</span>}</TD>
+                    <TD>{l.date}</TD>
+                    <TD>{l.origin?.split(",")[0]} → {l.dest?.split(",")[0]}</TD>
+                    <TD mono>{fmtMi(splitMi)}</TD>
+                    <TD mono color="#7c3aed">{splitDH > 0 ? fmtMi(splitDH) : "—"}</TD>
+                    <TD mono>{fmt$(l.rate)}</TD>
+                    <TD mono color="#7c3aed">{Number(l.detention) > 0 ? fmt$(l.detention) : "—"}</TD>
+                    <TD mono>${fmtN(l.driverCpm, 2)}/mi</TD>
+                    <TD mono color="#d97706" bold>{fmt$(dp)}</TD>
+                    <TD><StatusBadge s={l.status} /></TD>
+                  </tr>
+                );
+              })}
+              {dl.length > 0 && (
+                <tr style={{ background: "#fffbeb", borderTop: "2px solid #fde68a" }}>
+                  <td colSpan={8} style={{ padding: "10px 14px", fontWeight: 700, color: "#92400e" }}>TOTAL PAY THIS PERIOD</td>
+                  <td style={{ padding: "10px 14px", fontFamily: "monospace", fontWeight: 900, color: "#d97706", fontSize: 16 }}>{fmt$(totalPay)}</td>
+                  <td></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </ModalShell>
+    );
+  };
 
   const NAV = [
     { id: "dashboard", label: "Dashboard", icon: "📊" },
@@ -1998,7 +2061,12 @@ export default function App() {
           {maintAlerts.length > 0 && <div style={{ background: "#dc262620", border: "1px solid #dc262644", borderRadius: 6, padding: "5px 8px", color: "#f87171", fontSize: 10, fontWeight: 700 }}>⚠️ {maintAlerts.length} maintenance alert{maintAlerts.length > 1 ? "s" : ""}</div>}
         </div>
         <div style={{ flex: 1 }}>
-          {NAV.map(n => (<button key={n.id} style={S.navBtn(tab === n.id)} onClick={() => setTab(n.id)}><span style={{ fontSize: 15 }}>{n.icon}</span>{n.label}{n.id === "factoring" && readyToFactor.length > 0 && <span style={{ marginLeft: "auto", background: "#2563eb", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 800, padding: "2px 6px" }}>{readyToFactor.length}</span>}</button>))}
+          {NAV.map(n => (<button key={n.id} style={S.navBtn(tab === n.id)} onClick={() => switchTab(n.id)}>
+            <span style={{ fontSize: 15 }}>{n.icon}</span>
+            {n.label}
+            {n.id === "factoring" && readyToFactor.length > 0 && <span style={{ marginLeft: "auto", background: "#2563eb", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 800, padding: "2px 6px" }}>{readyToFactor.length}</span>}
+            {n.id === "loads" && loadDraft && !modal && <span style={{ marginLeft: "auto", background: "#d97706", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 800, padding: "2px 6px" }}>DRAFT</span>}
+          </button>))}
         </div>
         <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
           <div style={{ color: "#475569", fontSize: 9, fontWeight: 700, letterSpacing: 1.5, marginBottom: 8 }}>ACTIVE TRUCKS</div>
@@ -2028,7 +2096,7 @@ export default function App() {
 
       {modal === "truck" && <TruckForm onClose={closeModal} onSave={saveTruck} saving={saving} trucks={trucks} editId={editItem?.id} />}
       {modal === "trailer" && <TrailerForm onClose={closeModal} onSave={saveTrailer} saving={saving} trailers={trailers} editId={editItem?.id} />}
-      {modal === "load" && <LoadForm onClose={closeModal} onSave={saveLoad} saving={saving} trucks={trucks} trailers={trailers} drivers={driverProfiles} editItem={editItem} loads={loads} />}
+      {modal === "load" && <LoadForm onClose={() => { closeModal(); }} onSave={(f) => { saveLoad(f); setLoadDraft(null); }} saving={saving} trucks={trucks} trailers={trailers} drivers={driverProfiles} editItem={editItem} loads={loads} draft={!editItem ? loadDraft : null} onDraftChange={setLoadDraft} />}
       {modal === "fuel" && <FuelForm onClose={closeModal} onSave={saveFuel} saving={saving} trucks={trucks} editItem={editItem} />}
       {modal === "expense" && <ExpenseForm onClose={closeModal} onSave={saveExp} saving={saving} trucks={trucks} editItem={editItem} />}
       {modal === "repairReceipt" && <RepairReceiptModal onClose={closeModal} onSave={saveExp} saving={saving} trucks={trucks} />}
