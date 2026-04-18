@@ -1105,8 +1105,6 @@ export default function App() {
   const [paystubDriver, setPaystubDriver] = useState("");
   const [paystubPeriod, setPaystubPeriod] = useState("weekly");
   const [rateConDraft, setRateConDraft] = useState(null);
-  const [directClients, setDirectClients] = useState([]);
-  const [invoices, setInvoices] = useState([]);
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
   useEffect(() => {
