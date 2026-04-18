@@ -300,13 +300,57 @@ const MaintenanceForm = ({ onClose, onSave, saving, trucks, trailers, editItem }
   );
 };
 
-const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem }) => {
-  const [f, setF] = useState(editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverCpm: "0", driverOopExpenses: "0", isTeamLoad: false, driver2: "", driver2Cpm: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "" });
+const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem, loads }) => {
+  const [f, setF] = useState(editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverCpm: "0", driverOopExpenses: "0", isTeamLoad: false, driver2: "", driver2Cpm: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "", deadheadMiles: "0", deadheadOrigin: "" });
   const [originCoords, setOriginCoords] = useState(null);
   const [destCoords, setDestCoords] = useState(null);
   const [calcingMiles, setCalcingMiles] = useState(false);
+  const [calcingDeadhead, setCalcingDeadhead] = useState(false);
+  const [lastDrop, setLastDrop] = useState(null);
 
-  const handleOriginSelect = async (city) => { setOriginCoords(city); if (destCoords) { setCalcingMiles(true); const m = await calcMiles(city, destCoords); if (m) setF(p => ({ ...p, miles: String(m) })); setCalcingMiles(false); } };
+  // Find last delivery city for selected truck
+  const findLastDrop = (truckId) => {
+    const truckLoads = loads.filter(l => l.truckId === truckId && l.status === "Delivered" && l.dest)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    if (truckLoads.length > 0) {
+      setLastDrop(truckLoads[0].dest);
+      setF(p => ({ ...p, deadheadOrigin: truckLoads[0].dest }));
+    } else {
+      setLastDrop(null);
+      setF(p => ({ ...p, deadheadOrigin: "", deadheadMiles: "0" }));
+    }
+  };
+
+  const handleTruckSelect = (truckId) => {
+    setF(p => ({ ...p, truckId }));
+    findLastDrop(truckId);
+  };
+
+  const calcDeadheadMiles = async (fromCity, toCity) => {
+    if (!fromCity || !toCity) return;
+    setCalcingDeadhead(true);
+    try {
+      const [fromRes, toRes] = await Promise.all([
+        fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fromCity)}&format=json&limit=1&countrycodes=us`),
+        fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(toCity)}&format=json&limit=1&countrycodes=us`)
+      ]);
+      const [fromData, toData] = await Promise.all([fromRes.json(), toRes.json()]);
+      if (fromData[0] && toData[0]) {
+        const from = { lat: parseFloat(fromData[0].lat), lon: parseFloat(fromData[0].lon) };
+        const to = { lat: parseFloat(toData[0].lat), lon: parseFloat(toData[0].lon) };
+        const miles = await calcMiles(from, to);
+        if (miles) setF(p => ({ ...p, deadheadMiles: String(miles) }));
+      }
+    } catch {}
+    setCalcingDeadhead(false);
+  };
+
+  const handleOriginSelect = async (city) => {
+    setOriginCoords(city);
+    if (destCoords) { setCalcingMiles(true); const m = await calcMiles(city, destCoords); if (m) setF(p => ({ ...p, miles: String(m) })); setCalcingMiles(false); }
+    // Auto-calc deadhead from last drop to this pickup
+    if (f.deadheadOrigin) await calcDeadheadMiles(f.deadheadOrigin, city.label);
+  };
   const handleDestSelect = async (city) => { setDestCoords(city); if (originCoords) { setCalcingMiles(true); const m = await calcMiles(originCoords, city); if (m) setF(p => ({ ...p, miles: String(m) })); setCalcingMiles(false); } };
 
   // Auto-fill CPM when driver selected from profile
@@ -316,8 +360,7 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
     const partner = profile?.teamPartner || "";
     const partnerProfile = partner ? drivers.find(d => d.name === partner) : null;
     setF(p => ({
-      ...p,
-      driver: name,
+      ...p, driver: name,
       driverCpm: profile ? String(profile.cpm) : p.driverCpm,
       isTeamLoad: isTeam ? true : p.isTeamLoad,
       driver2: isTeam && partner ? partner : p.driver2,
@@ -331,8 +374,10 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
 
   const g = Number(f.rate || 0) + Number(f.detention || 0);
   const splitMiles = f.isTeamLoad ? Number(f.miles || 0) / 2 : Number(f.miles || 0);
-  const driverPay = Number(f.driverCpm || 0) * splitMiles;
-  const driver2Pay = f.isTeamLoad ? Number(f.driver2Cpm || 0) * splitMiles : 0;
+  const deadheadMi = Number(f.deadheadMiles || 0);
+  const splitDeadhead = f.isTeamLoad ? deadheadMi / 2 : deadheadMi;
+  const driverPay = Number(f.driverCpm || 0) * (splitMiles + splitDeadhead);
+  const driver2Pay = f.isTeamLoad ? Number(f.driver2Cpm || 0) * (splitMiles + splitDeadhead) : 0;
   const totalDriverPay = driverPay + driver2Pay;
   const driverOop = Number(f.driverOopExpenses || 0);
   const lumperNet = f.lumperPaidBy === "Out of Pocket" && f.lumperReimbursed !== "Yes" ? Number(f.lumperCost || 0) : 0;
@@ -344,10 +389,42 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
       <div style={fgrid}>
         <Field label="Load Number" value={f.loadNum || ""} onChange={v => setF(p => ({ ...p, loadNum: v }))} placeholder="L-1001" />
         <Field label="Date" type="date" value={f.date || today()} onChange={v => setF(p => ({ ...p, date: v }))} />
-        <Field label="Assign Truck" value={f.truckId || ""} onChange={v => setF(p => ({ ...p, truckId: v }))} options={trucks.map(t => ({ value: t.id, label: t.name }))} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <label style={labelStyle}>Assign Truck</label>
+          <select value={f.truckId || ""} onChange={e => handleTruckSelect(e.target.value)} style={inputStyle}>
+            {trucks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          {lastDrop && <div style={{ color: "#7c3aed", fontSize: 11 }}>📍 Last drop: {lastDrop}</div>}
+        </div>
         <Field label="Assign Trailer" value={f.trailerId || ""} onChange={v => setF(p => ({ ...p, trailerId: v }))} options={[{ value: "", label: "— None —" }, ...trailers.map(t => ({ value: t.id, label: t.name }))]} />
         <Field label="Broker / Customer Name" value={f.brokerName || ""} onChange={v => setF(p => ({ ...p, brokerName: v }))} placeholder="e.g. Echo Global Logistics" />
         <Field label="Broker MC#" value={f.brokerMC || ""} onChange={v => setF(p => ({ ...p, brokerMC: v }))} placeholder="MC-000000" />
+      </div>
+
+      {/* Deadhead Section */}
+      <div style={{ background: "#f5f3ff", border: "1.5px solid #ddd6fe", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ color: "#7c3aed", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>🗺️ DEADHEAD MILES</div>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label style={labelStyle}>Deadhead From (Last Drop)</label>
+            <input value={f.deadheadOrigin || ""} onChange={e => setF(p => ({ ...p, deadheadOrigin: e.target.value }))} placeholder="City where truck is coming from" style={inputStyle} />
+            {lastDrop && <div style={{ color: "#7c3aed", fontSize: 11 }}>✅ Auto-filled from last delivery</div>}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label style={labelStyle}>Deadhead To (This Pickup)</label>
+            <input value={f.origin || ""} readOnly style={{ ...inputStyle, background: "#f3f4f6", color: "#6b7280" }} placeholder="Will fill when you pick origin city" />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label style={labelStyle}>Deadhead Miles {calcingDeadhead ? "⏳" : ""}</label>
+            <input type="number" value={f.deadheadMiles || "0"} onChange={e => setF(p => ({ ...p, deadheadMiles: e.target.value }))} style={inputStyle} />
+            {deadheadMi > 0 && <div style={{ color: "#7c3aed", fontSize: 11 }}>Cost: {fmt$(deadheadMi * Number(f.driverCpm || 0))}</div>}
+          </div>
+        </div>
+        {f.deadheadOrigin && f.origin && deadheadMi === 0 && (
+          <button onClick={() => calcDeadheadMiles(f.deadheadOrigin, f.origin)} style={{ marginTop: 10, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>
+            🔄 Auto-Calculate Deadhead Miles
+          </button>
+        )}
       </div>
 
       {/* Driver section */}
@@ -450,10 +527,20 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
           <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "14px 16px" }}>
             <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700, marginBottom: 10 }}>LOAD PROFIT PREVIEW</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
-              {[{ l: "Gross", v: fmt$(g), c: "#16a34a" }, { l: "Driver Cost", v: fmt$(driverPay + driverOop), c: "#d97706" }, { l: "Your Profit", v: fmt$(profit), c: profit >= 0 ? "#16a34a" : "#dc2626" }].map(s => (
+              {[{ l: "Gross", v: fmt$(g), c: "#16a34a" }, { l: "Driver Cost", v: fmt$(totalDriverPay + driverOop), c: "#d97706" }, { l: "Your Profit", v: fmt$(profit), c: profit >= 0 ? "#16a34a" : "#dc2626" }].map(s => (
                 <div key={s.l}><div style={{ color: "#6b7280", fontSize: 10, marginBottom: 3 }}>{s.l}</div><div style={{ color: s.c, fontFamily: "monospace", fontWeight: 800 }}>{s.v}</div></div>
               ))}
             </div>
+            {deadheadMi > 0 && (
+              <div style={{ marginTop: 10, borderTop: "1px solid #bbf7d0", paddingTop: 8 }}>
+                <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700, marginBottom: 4 }}>MILES BREAKDOWN</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                  <span style={{ color: "#374151" }}>🚛 Loaded: {fmtMi(f.miles)} mi</span>
+                  <span style={{ color: "#7c3aed" }}>🗺️ DH: {fmtMi(deadheadMi)} mi</span>
+                  <span style={{ color: "#374151", fontWeight: 700 }}>= {fmtMi(Number(f.miles || 0) + deadheadMi)} mi total</span>
+                </div>
+              </div>
+            )}
           </div>
           <div style={{ background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 10, padding: "14px 16px" }}>
             <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700, marginBottom: 10 }}>APEX FACTORING PREVIEW</div>
@@ -1019,7 +1106,7 @@ export default function App() {
       ]);
       if (t.data) setTrucks(t.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, color: r.color, active: r.active })));
       if (tr.data) setTrailers(tr.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, type: r.type, color: r.color, active: r.active })));
-      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverCpm: r.driver_cpm || 0, driverOopExpenses: r.driver_oop_expenses || 0, isTeamLoad: r.is_team_load || false, driver2: r.driver2 || "", driver2Cpm: r.driver2_cpm || 0, truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "" })));
+      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverCpm: r.driver_cpm || 0, driverOopExpenses: r.driver_oop_expenses || 0, isTeamLoad: r.is_team_load || false, driver2: r.driver2 || "", driver2Cpm: r.driver2_cpm || 0, deadheadMiles: r.deadhead_miles || 0, deadheadOrigin: r.deadhead_origin || "", truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "" })));
       if (f.data) setFuelLog(f.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, gallons: r.gallons, pricePer: r.price_per, total: r.total, location: r.location, loadNum: r.load_num })));
       if (e.data) setExpenses(e.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, category: r.category, description: r.description, amount: r.amount })));
       if (m.data) setMaintenance(m.data.map(r => ({ id: r.id, entityId: r.entity_id, entityType: r.entity_type, category: r.category, description: r.description, date: r.date, milesAtService: r.miles_at_service, nextDueMiles: r.next_due_miles, nextDueDate: r.next_due_date, cost: r.cost, position: r.position, notes: r.notes })));
@@ -1038,7 +1125,7 @@ export default function App() {
 
   const saveLoad = async (f) => {
     if (!f.loadNum || !f.rate) return; setSaving(true);
-    const { error } = await db.from("loads").upsert({ id: editItem?.id || uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver, driver_cpm: Number(f.driverCpm || 0), driver_oop_expenses: Number(f.driverOopExpenses || 0), is_team_load: f.isTeamLoad || false, driver2: f.driver2 || "", driver2_cpm: Number(f.driver2Cpm || 0), truck_id: f.truckId, trailer_id: f.trailerId || null, status: f.status, lumper_cost: Number(f.lumperCost || 0), lumper_paid_by: f.lumperPaidBy || "Out of Pocket", lumper_reimbursed: f.lumperReimbursed || "No", lumper_reimbursed_amount: Number(f.lumperReimbursedAmount || 0), toll: Number(f.toll || 0), factoring_status: f.factoringStatus || "Not Submitted", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
+    const { error } = await db.from("loads").upsert({ id: editItem?.id || uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver, driver_cpm: Number(f.driverCpm || 0), driver_oop_expenses: Number(f.driverOopExpenses || 0), is_team_load: f.isTeamLoad || false, driver2: f.driver2 || "", driver2_cpm: Number(f.driver2Cpm || 0), deadhead_miles: Number(f.deadheadMiles || 0), deadhead_origin: f.deadheadOrigin || "", truck_id: f.truckId, trailer_id: f.trailerId || null, status: f.status, lumper_cost: Number(f.lumperCost || 0), lumper_paid_by: f.lumperPaidBy || "Out of Pocket", lumper_reimbursed: f.lumperReimbursed || "No", lumper_reimbursed_amount: Number(f.lumperReimbursedAmount || 0), toll: Number(f.toll || 0), factoring_status: f.factoringStatus || "Not Submitted", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
     if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Load updated ✓" : "Load added ✓"); } setSaving(false);
   };
 
@@ -1105,7 +1192,13 @@ export default function App() {
   const filtFuel = truckView === "FLEET" ? fuelLog : fuelLog.filter(f => f.truckId === truckView);
   const filtExp = truckView === "FLEET" ? expenses : expenses.filter(e => e.truckId === truckView || e.truckId === "FLEET");
   const totalRev = filtLoads.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-  const totalDPay = filtLoads.reduce((s, l) => { const pay = Number(l.driverCpm || 0) * Number(l.miles || 0); return s + pay + Number(l.driverOopExpenses || 0); }, 0);
+  const totalDPay = filtLoads.reduce((s, l) => {
+    const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+    const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
+    const d1Pay = Number(l.driverCpm || 0) * (splitMi + splitDH);
+    const d2Pay = l.isTeamLoad ? Number(l.driver2Cpm || 0) * (splitMi + splitDH) : 0;
+    return s + d1Pay + d2Pay + Number(l.driverOopExpenses || 0);
+  }, 0);
   const totalFuel = filtFuel.reduce((s, f) => s + Number(f.total || 0), 0);
   const totalExp = filtExp.reduce((s, e) => s + Number(e.amount || 0), 0);
   const totalMiles = filtLoads.reduce((s, l) => s + Number(l.miles || 0), 0);
@@ -1155,14 +1248,24 @@ export default function App() {
     const dl = loads.filter(l => l.driver === name);
     const dl2 = loads.filter(l => l.isTeamLoad && l.driver2 === name);
     const rev = dl.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-    const pay = dl.reduce((s, l) => { const mi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0); return s + Number(l.driverCpm || 0) * mi + Number(l.driverOopExpenses || 0); }, 0)
-              + dl2.reduce((s, l) => { const mi = Number(l.miles || 0) / 2; return s + Number(l.driver2Cpm || 0) * mi; }, 0);
-    const mi = dl.reduce((s, l) => s + (l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0)), 0)
-             + dl2.reduce((s, l) => s + Number(l.miles || 0) / 2, 0);
+    const pay = dl.reduce((s, l) => {
+      const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+      const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
+      return s + Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driverOopExpenses || 0);
+    }, 0) + dl2.reduce((s, l) => {
+      const splitMi = Number(l.miles || 0) / 2;
+      const splitDH = Number(l.deadheadMiles || 0) / 2;
+      return s + Number(l.driver2Cpm || 0) * (splitMi + splitDH);
+    }, 0);
+    const loadedMi = dl.reduce((s, l) => s + (l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0)), 0)
+                   + dl2.reduce((s, l) => s + Number(l.miles || 0) / 2, 0);
+    const deadheadMi = dl.reduce((s, l) => s + (l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0)), 0)
+                     + dl2.reduce((s, l) => s + Number(l.deadheadMiles || 0) / 2, 0);
+    const mi = loadedMi + deadheadMi;
     const det = dl.reduce((s, l) => s + Number(l.detention || 0), 0);
     const profile = driverProfiles.find(d => d.name === name);
     const allLoads = [...dl, ...dl2.map(l => ({ ...l, driverCpm: l.driver2Cpm, driver: name }))];
-    return { name, loads: allLoads.length, rev, pay, mi, det, cpm: profile?.cpm || dl[0]?.driverCpm || 0, allLoads };
+    return { name, loads: allLoads.length, rev, pay, mi, loadedMi, deadheadMi, det, cpm: profile?.cpm || dl[0]?.driverCpm || 0, allLoads };
   });
   const getPaystubLoads = (driver) => {
     const now = new Date();
@@ -1560,8 +1663,9 @@ export default function App() {
         {driverStats.map(d => {
           const periodLoads = getPaystubLoads(d.name);
           const periodPay = periodLoads.reduce((s, l) => {
-            const mi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
-            return s + Number(l.driverCpm || 0) * mi + Number(l.driverOopExpenses || 0);
+            const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+            const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
+            return s + Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driverOopExpenses || 0);
           }, 0);
           return (
             <div key={d.name} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: 22, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
@@ -1569,7 +1673,7 @@ export default function App() {
                 <div style={{ width: 52, height: 52, borderRadius: "50%", background: "linear-gradient(135deg,#d97706,#b45309)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 900, color: "#fff" }}>{d.name.split(" ").map(n => n[0]).join("").slice(0, 2)}</div>
                 <div><div style={{ color: "#111827", fontWeight: 800, fontSize: 16 }}>{d.name}</div><div style={{ color: "#6b7280", fontSize: 12 }}>${fmtN(d.cpm, 2)}/mi · {d.loads} loads</div></div>
               </div>
-              {[{ l: "All-Time Revenue", v: fmt$(d.rev), c: "#16a34a" }, { l: "All-Time Pay", v: fmt$(d.pay), c: "#d97706" }, { l: "Total Miles", v: fmtMi(d.mi) + " mi", c: "#2563eb" }, { l: "Detention", v: fmt$(d.det), c: "#7c3aed" }].map(r => (
+              {[{ l: "All-Time Revenue", v: fmt$(d.rev), c: "#16a34a" }, { l: "All-Time Pay", v: fmt$(d.pay), c: "#d97706" }, { l: "Loaded Miles", v: fmtMi(d.loadedMi) + " mi", c: "#2563eb" }, { l: "Deadhead Miles", v: fmtMi(d.deadheadMi) + " mi", c: "#7c3aed" }, { l: "Detention", v: fmt$(d.det), c: "#d97706" }].map(r => (
                 <div key={r.l} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
                   <span style={{ color: "#374151", fontSize: 12 }}>{r.l}</span>
                   <span style={{ color: r.c, fontFamily: "monospace", fontWeight: 700 }}>{r.v}</span>
@@ -1660,7 +1764,7 @@ export default function App() {
 
       {modal === "truck" && <TruckForm onClose={closeModal} onSave={saveTruck} saving={saving} trucks={trucks} editId={editItem?.id} />}
       {modal === "trailer" && <TrailerForm onClose={closeModal} onSave={saveTrailer} saving={saving} trailers={trailers} editId={editItem?.id} />}
-      {modal === "load" && <LoadForm onClose={closeModal} onSave={saveLoad} saving={saving} trucks={trucks} trailers={trailers} drivers={driverProfiles} editItem={editItem} />}
+      {modal === "load" && <LoadForm onClose={closeModal} onSave={saveLoad} saving={saving} trucks={trucks} trailers={trailers} drivers={driverProfiles} editItem={editItem} loads={loads} />}
       {modal === "fuel" && <FuelForm onClose={closeModal} onSave={saveFuel} saving={saving} trucks={trucks} editItem={editItem} />}
       {modal === "expense" && <ExpenseForm onClose={closeModal} onSave={saveExp} saving={saving} trucks={trucks} editItem={editItem} />}
       {modal === "repairReceipt" && <RepairReceiptModal onClose={closeModal} onSave={saveExp} saving={saving} trucks={trucks} />}
