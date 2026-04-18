@@ -2247,7 +2247,7 @@ export default function App() {
           {maintAlerts.length > 0 && <div style={{ background: "#dc262620", border: "1px solid #dc262644", borderRadius: 6, padding: "5px 8px", color: "#f87171", fontSize: 10, fontWeight: 700 }}>⚠️ {maintAlerts.length} maintenance alert{maintAlerts.length > 1 ? "s" : ""}</div>}
         </div>
         <div style={{ flex: 1 }}>
-          {NAV.map(n => (<button key={n.id} style={S.navBtn(tab === n.id)} onClick={() => switchTab(n.id)}>
+          {NAV.map(n => (<button key={n.id} style={S.navBtn(tab === n.id)} onClick={() => setTab(n.id)}>
             <span style={{ fontSize: 15 }}>{n.icon}</span>
             {n.label}
             {n.id === "factoring" && readyToFactor.length > 0 && <span style={{ marginLeft: "auto", background: "#2563eb", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 800, padding: "2px 6px" }}>{readyToFactor.length}</span>}
