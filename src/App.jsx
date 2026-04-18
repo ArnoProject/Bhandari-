@@ -1387,11 +1387,6 @@ export default function App() {
   const delExp = async (id) => { if (!confirm("Delete?")) return; await db.from("expenses").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
   const delMaintenance = async (id) => { if (!confirm("Delete?")) return; await db.from("maintenance").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
   const delInsurance = async (id) => { if (!confirm("Delete?")) return; await db.from("insurance").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
-  const saveDirectClient = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("direct_clients").upsert({ id: editItem?.id || uid(), name: f.name, contact_name: f.contactName || "", email: f.email || "", phone: f.phone || "", address: f.address || "", payment_terms: f.paymentTerms || "Net 2", notes: f.notes || "", active: f.active !== false }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Client updated ✓" : "Client added ✓"); } setSaving(false); };
-  const delDirectClient = async (id) => { if (!confirm("Delete client?")) return; await db.from("direct_clients").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
-  const saveInvoice = async (inv) => { setSaving(true); const { error } = await db.from("invoices").upsert({ id: inv.id || uid(), invoice_number: inv.invoiceNumber, client_id: inv.clientId, load_id: inv.loadId, date: inv.date, due_date: inv.dueDate, amount: Number(inv.amount || 0), status: inv.status || "Draft", notes: inv.notes || "" }); if (!error && inv.loadId) { await db.from("loads").update({ invoice_id: inv.id, is_direct_client: true, client_id: inv.clientId }).eq("id", inv.loadId); } if (error) showToast("Save failed", "error"); else { await fetchAll(); showToast("Invoice saved ✓"); } setSaving(false); };
-  const updateInvoiceStatus = async (id, status) => { await db.from("invoices").update({ status }).eq("id", id); await fetchAll(); showToast(`Invoice ${status} ✓`); };
-  const delInvoice = async (id) => { if (!confirm("Delete invoice?")) return; await db.from("invoices").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
 
   // ─── COMPUTED VALUES ───────────────────────────────────────────────────────
   const filtLoads = truckView === "FLEET" ? loads : loads.filter(l => l.truckId === truckView);
@@ -1901,86 +1896,6 @@ export default function App() {
       </div>
     </>
   );
-
-  const printInvoice = (inv) => {
-    const client = directClients.find(c => c.id === inv.clientId);
-    const load = loads.find(l => l.id === inv.loadId);
-    const w = window.open("", "_blank");
-    w.document.write(`<!DOCTYPE html><html><head><title>Invoice #${inv.invoiceNumber}</title><style>
-      *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Helvetica Neue',Arial,sans-serif;padding:40px;color:#111;max-width:800px;margin:0 auto}
-      .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;padding-bottom:24px;border-bottom:3px solid #d97706}
-      .company{color:#111;font-size:22px;font-weight:900;letter-spacing:1px}.company-sub{color:#6b7280;font-size:12px;margin-top:4px;line-height:1.6}
-      .invoice-title{text-align:right}.invoice-title h1{font-size:36px;font-weight:900;color:#d97706;letter-spacing:2px}.invoice-title p{color:#6b7280;font-size:13px;margin-top:4px}
-      .bill-section{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:36px}
-      .bill-box h3{font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
-      .bill-box p{font-size:13px;color:#374151;line-height:1.8;font-weight:500}
-      .bill-box .name{font-size:16px;font-weight:800;color:#111;margin-bottom:4px}
-      table{width:100%;border-collapse:collapse;margin-bottom:24px}
-      thead{background:#f9fafb}th{padding:12px 16px;text-align:left;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid #e5e7eb}
-      td{padding:14px 16px;font-size:14px;border-bottom:1px solid #f3f4f6}
-      .amount-col{text-align:right;font-family:monospace;font-weight:700}
-      .totals{margin-left:auto;width:300px}.totals-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:14px}
-      .totals-row.total{border-top:2px solid #111;border-bottom:none;margin-top:8px;padding-top:12px;font-size:16px;font-weight:900}
-      .balance-due{background:#d97706;color:#fff;padding:16px 20px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:16px}
-      .balance-due span:first-child{font-weight:700;font-size:14px}.balance-due span:last-child{font-size:24px;font-weight:900;font-family:monospace}
-      .footer{margin-top:48px;padding-top:20px;border-top:1px solid #e5e7eb;text-align:center;color:#9ca3af;font-size:11px}
-      @media print{body{padding:20px}.no-print{display:none}}
-    </style></head><body>
-      <div class="no-print" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center">
-        <span style="color:#16a34a;font-weight:700">✅ Invoice #${inv.invoiceNumber} — Ready to print or save as PDF</span>
-        <button onclick="window.print()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-weight:700;cursor:pointer;font-size:13px">🖨️ Print / Save PDF</button>
-      </div>
-      <div class="header">
-        <div>
-          <div class="company">BHANDARI LOGISTICS LLC</div>
-          <div class="company-sub">7615 N 90TH ST<br>OMAHA, NE 68122<br>MC# 1166353<br>bhandarilogistics78@gmail.com</div>
-        </div>
-        <div class="invoice-title">
-          <h1>INVOICE</h1>
-          <p># ${inv.invoiceNumber}</p>
-          <p style="margin-top:12px"><strong>Date:</strong> ${inv.date}</p>
-          <p><strong>Due Date:</strong> ${inv.dueDate}</p>
-          ${load ? `<p><strong>PO Number:</strong> ${load.loadNum}</p>` : ""}
-        </div>
-      </div>
-      <div class="bill-section">
-        <div class="bill-box">
-          <h3>From</h3>
-          <div class="name">Bhandari Logistics LLC</div>
-          <p>7615 N 90TH ST<br>Omaha, NE 68122<br>MC# 1166353</p>
-        </div>
-        <div class="bill-box">
-          <h3>Bill To</h3>
-          <div class="name">${client?.name || "—"}</div>
-          <p>${client?.address || ""}</p>
-          ${client?.contactName ? `<p style="margin-top:6px">Attn: ${client.contactName}</p>` : ""}
-        </div>
-      </div>
-      <table>
-        <thead><tr><th>Description</th><th>Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>LOAD NUMBER ${load?.loadNum || inv.notes || "—"}${load ? `<br><span style="color:#6b7280;font-size:12px">${load.origin || ""} → ${load.dest || ""}</span>` : ""}</td>
-            <td>1</td>
-            <td class="amount-col">${fmt$(inv.amount)}</td>
-            <td class="amount-col">${fmt$(inv.amount)}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="totals">
-        <div class="totals-row"><span>Subtotal:</span><span>${fmt$(inv.amount)}</span></div>
-        <div class="totals-row"><span>Tax (0%):</span><span>$0.00</span></div>
-        <div class="totals-row total"><span>Total:</span><span>${fmt$(inv.amount)}</span></div>
-        <div class="balance-due"><span>Balance Due</span><span>${fmt$(inv.status === "Paid" ? 0 : inv.amount)}</span></div>
-      </div>
-      ${inv.notes ? `<div style="margin-top:32px;padding:16px;background:#f9fafb;border-radius:8px"><div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:6px">Notes</div><p style="color:#374151;font-size:13px">${inv.notes}</p></div>` : ""}
-      <div class="footer">
-        <p>Payment via ACH · ${client?.paymentTerms || "Net 2"} days</p>
-        <p style="margin-top:4px">Thank you for your business!</p>
-      </div>
-    </body></html>`);
-    w.document.close();
-  };
 
   const Invoices = () => {
     const [showClientForm, setShowClientForm] = useState(false);
