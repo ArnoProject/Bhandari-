@@ -1461,7 +1461,10 @@ export default function App() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 18 }}>
         {driverStats.map(d => {
           const periodLoads = getPaystubLoads(d.name);
-          const periodPay = periodLoads.reduce((s, l) => s + Number(l.driverCpm || 0) * Number(l.miles || 0) + Number(l.driverOopExpenses || 0), 0);
+          const periodPay = periodLoads.reduce((s, l) => {
+            const mi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+            return s + Number(l.driverCpm || 0) * mi + Number(l.driverOopExpenses || 0);
+          }, 0);
           return (
             <div key={d.name} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: 22, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
