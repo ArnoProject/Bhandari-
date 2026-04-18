@@ -931,9 +931,22 @@ export default function App() {
   };
 
   const saveLoadDirect = async (f) => {
-    if (!f.loadNum || !f.rate) { showToast("Missing load # or rate", "error"); return; } setSaving(true);
-    const { error } = await db.from("loads").upsert({ id: uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver || "", driver_cpm: 0, driver_oop_expenses: 0, truck_id: f.truckId || trucks[0]?.id || "", trailer_id: f.trailerId || null, status: f.status || "Pending", lumper_cost: 0, lumper_paid_by: "Out of Pocket", lumper_reimbursed: "No", lumper_reimbursed_amount: 0, toll: 0, factoring_status: f.factoringStatus || "Ready to Factor", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
-    if (error) showToast("Save failed", "error"); else { await fetchAll(); showToast("Load saved from rate con ✓"); } setSaving(false);
+    if (!f.loadNum || !f.rate) { showToast("Missing load # or rate", "error"); return; }
+    setSaving(true);
+    const { error } = await db.from("loads").upsert({
+      id: uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest,
+      miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0),
+      driver: f.driver || "", driver_cpm: Number(f.driverCpm || 0), driver_oop_expenses: 0,
+      is_team_load: false, driver2: "", driver2_cpm: 0,
+      truck_id: f.truckId || trucks[0]?.id || "", trailer_id: f.trailerId || null,
+      status: f.status || "Pending", lumper_cost: 0, lumper_paid_by: "Out of Pocket",
+      lumper_reimbursed: "No", lumper_reimbursed_amount: 0, toll: 0,
+      factoring_status: f.factoringStatus || "Ready to Factor",
+      broker_name: f.brokerName || "", broker_mc: f.brokerMC || ""
+    });
+    if (error) { console.error("saveLoadDirect error:", error); showToast("Save failed: " + error.message, "error"); }
+    else { await fetchAll(); showToast("Load saved from rate con ✓"); }
+    setSaving(false);
   };
 
   const updateFactoringStatus = async (loadId, status) => {
