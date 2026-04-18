@@ -90,22 +90,6 @@ const parseWithAI = async (base64Data, mediaType, prompt) => {
     return JSON.parse(text.replace(/```json|```/g, "").trim());
   } catch (e) { console.error("parseWithAI error:", e); return null; }
 };
-        messages: [{ role: "user", content: [
-          { type: mediaType.includes("pdf") ? "document" : "image", source: { type: "base64", media_type: mediaType, data: base64Data } },
-          { type: "text", text: prompt }
-        ]}]
-      })
-    });
-    const data = await response.json();
-    if (data.error) { console.error("AI error:", data.error); return null; }
-    const text = data.content?.[0]?.text || "";
-    if (!text) return null;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    return JSON.parse(text.replace(/```json|```/g, "").trim());
-  } catch (e) { console.error("parseWithAI error:", e); return null; }
-};
-};
 
 const parseTCSCsv = (text) => {
   const lines = text.trim().split("\n").filter(l => l.trim());
@@ -471,7 +455,7 @@ const RepairReceiptModal = ({ onClose, onSave, saving, trucks }) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001", max_tokens: 500,
+          model: "claude-sonnet-4-20250514", max_tokens: 500,
           messages: [{ role: "user", content: [
             { type: "image", source: { type: "base64", media_type: mediaType, data: b64.split(",")[1] } },
             { type: "text", text: `This is a repair/expense receipt. Extract: vendor name, total amount, date, description of work/items. Return ONLY JSON: {"vendor":"name","amount":number,"date":"YYYY-MM-DD or null","description":"what was repaired/purchased"}` }
