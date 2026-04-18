@@ -107,7 +107,7 @@ const parseTCSCsv = (text) => {
 
 const printPaystub = (driver, driverLoads, period) => {
   const totalGross = driverLoads.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-  const totalPay = driverLoads.reduce((s, l) => { const g = Number(l.rate || 0) + Number(l.detention || 0); return s + g * (Number(l.driverPct || 0) / 100); }, 0);
+  const totalPay = driverLoads.reduce((s, l) => s + Number(l.driverCpm || 0) * Number(l.miles || 0) + Number(l.driverOopExpenses || 0), 0);
   const totalMiles = driverLoads.reduce((s, l) => s + Number(l.miles || 0), 0);
   const totalDetention = driverLoads.reduce((s, l) => s + Number(l.detention || 0), 0);
   const w = window.open("", "_blank");
@@ -293,18 +293,28 @@ const MaintenanceForm = ({ onClose, onSave, saving, trucks, trailers, editItem }
   );
 };
 
-const LoadForm = ({ onClose, onSave, saving, trucks, trailers, editItem }) => {
-  const [f, setF] = useState(editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverPct: "28", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "" });
+const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem }) => {
+  const [f, setF] = useState(editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverCpm: "0", driverOopExpenses: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "" });
   const [originCoords, setOriginCoords] = useState(null);
   const [destCoords, setDestCoords] = useState(null);
   const [calcingMiles, setCalcingMiles] = useState(false);
+
   const handleOriginSelect = async (city) => { setOriginCoords(city); if (destCoords) { setCalcingMiles(true); const m = await calcMiles(city, destCoords); if (m) setF(p => ({ ...p, miles: String(m) })); setCalcingMiles(false); } };
   const handleDestSelect = async (city) => { setDestCoords(city); if (originCoords) { setCalcingMiles(true); const m = await calcMiles(originCoords, city); if (m) setF(p => ({ ...p, miles: String(m) })); setCalcingMiles(false); } };
+
+  // Auto-fill CPM when driver selected from profile
+  const handleDriverSelect = (name) => {
+    const profile = drivers.find(d => d.name === name);
+    setF(p => ({ ...p, driver: name, driverCpm: profile ? String(profile.cpm) : p.driverCpm }));
+  };
+
   const g = Number(f.rate || 0) + Number(f.detention || 0);
-  const dp = g * (Number(f.driverPct || 0) / 100);
+  const driverPay = Number(f.driverCpm || 0) * Number(f.miles || 0);
+  const driverOop = Number(f.driverOopExpenses || 0);
   const lumperNet = f.lumperPaidBy === "Out of Pocket" && f.lumperReimbursed !== "Yes" ? Number(f.lumperCost || 0) : 0;
-  const profit = g - dp - lumperNet - Number(f.toll || 0);
+  const profit = g - driverPay - driverOop - lumperNet - Number(f.toll || 0);
   const fct = calcFactoring(g);
+
   return (
     <ModalShell title={editItem ? "✏️ Edit Load" : "🚛 Add Load"} onClose={onClose} wide>
       <div style={fgrid}>
@@ -312,11 +322,38 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, editItem }) => {
         <Field label="Date" type="date" value={f.date || today()} onChange={v => setF(p => ({ ...p, date: v }))} />
         <Field label="Assign Truck" value={f.truckId || ""} onChange={v => setF(p => ({ ...p, truckId: v }))} options={trucks.map(t => ({ value: t.id, label: t.name }))} />
         <Field label="Assign Trailer" value={f.trailerId || ""} onChange={v => setF(p => ({ ...p, trailerId: v }))} options={[{ value: "", label: "— None —" }, ...trailers.map(t => ({ value: t.id, label: t.name }))]} />
-        <Field label="Driver Name" value={f.driver || ""} onChange={v => setF(p => ({ ...p, driver: v }))} placeholder="Full name" />
-        <Field label="Driver Pay %" type="number" value={f.driverPct || "28"} onChange={v => setF(p => ({ ...p, driverPct: v }))} />
         <Field label="Broker / Customer Name" value={f.brokerName || ""} onChange={v => setF(p => ({ ...p, brokerName: v }))} placeholder="e.g. Echo Global Logistics" />
         <Field label="Broker MC#" value={f.brokerMC || ""} onChange={v => setF(p => ({ ...p, brokerMC: v }))} placeholder="MC-000000" />
       </div>
+
+      {/* Driver section */}
+      <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>👤 DRIVER & PAY</div>
+        <div style={fgrid}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label style={labelStyle}>Driver Name</label>
+            <input list="driverList" value={f.driver || ""} onChange={e => handleDriverSelect(e.target.value)} placeholder="Type or select driver" style={inputStyle} />
+            <datalist id="driverList">{drivers.map(d => <option key={d.id} value={d.name} />)}</datalist>
+            {drivers.find(d => d.name === f.driver) && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ Driver profile loaded — CPM auto-filled</div>}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label style={labelStyle}>Driver Pay (¢/mile CPM)</label>
+            <input type="number" value={f.driverCpm || "0"} onChange={e => setF(p => ({ ...p, driverCpm: e.target.value }))} placeholder="0.55" style={inputStyle} />
+            {f.driverCpm > 0 && f.miles > 0 && <div style={{ color: "#d97706", fontSize: 11 }}>= {fmt$(driverPay)} for {fmtMi(f.miles)} miles</div>}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <label style={labelStyle}>Driver Out of Pocket Expenses ($)</label>
+            <input type="number" value={f.driverOopExpenses || "0"} onChange={e => setF(p => ({ ...p, driverOopExpenses: e.target.value }))} placeholder="0.00" style={inputStyle} />
+            <div style={{ color: "#6b7280", fontSize: 10 }}>Tolls, parking, scale tickets paid by driver</div>
+          </div>
+          <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #fde68a" }}>
+            <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700 }}>TOTAL DRIVER COST</div>
+            <div style={{ color: "#d97706", fontFamily: "monospace", fontWeight: 900, fontSize: 18, marginTop: 4 }}>{fmt$(driverPay + driverOop)}</div>
+            <div style={{ color: "#9ca3af", fontSize: 10 }}>Pay + expenses</div>
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
         <CityInput label="Origin City" value={f.origin} onChange={v => setF(p => ({ ...p, origin: v }))} onCitySelect={handleOriginSelect} />
         <CityInput label="Destination City" value={f.dest} onChange={v => setF(p => ({ ...p, dest: v }))} onCitySelect={handleDestSelect} />
@@ -332,7 +369,9 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, editItem }) => {
         <Field label="Load Status" value={f.status || "Pending"} onChange={v => setF(p => ({ ...p, status: v }))} options={STATUSES} />
         <Field label="Factoring Status" value={f.factoringStatus || "Not Submitted"} onChange={v => setF(p => ({ ...p, factoringStatus: v }))} options={FACTORING_STATUSES} span />
       </div>
-      <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+
+      {/* Lumper */}
+      <div style={{ background: "#fef3c7", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
         <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>🧾 LUMPER FEES</div>
         <div style={fgrid}>
           <Field label="Lumper Cost ($)" type="number" value={f.lumperCost || "0"} onChange={v => setF(p => ({ ...p, lumperCost: v }))} />
@@ -343,12 +382,14 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, editItem }) => {
           </>}
         </div>
       </div>
+
+      {/* Live preview */}
       {f.rate && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
           <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "14px 16px" }}>
             <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700, marginBottom: 10 }}>LOAD PROFIT PREVIEW</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
-              {[{ l: "Gross", v: fmt$(g), c: "#16a34a" }, { l: "Driver Pay", v: fmt$(dp), c: "#d97706" }, { l: "Your Profit", v: fmt$(profit), c: profit >= 0 ? "#16a34a" : "#dc2626" }].map(s => (
+              {[{ l: "Gross", v: fmt$(g), c: "#16a34a" }, { l: "Driver Cost", v: fmt$(driverPay + driverOop), c: "#d97706" }, { l: "Your Profit", v: fmt$(profit), c: profit >= 0 ? "#16a34a" : "#dc2626" }].map(s => (
                 <div key={s.l}><div style={{ color: "#6b7280", fontSize: 10, marginBottom: 3 }}>{s.l}</div><div style={{ color: s.c, fontFamily: "monospace", fontWeight: 800 }}>{s.v}</div></div>
               ))}
             </div>
@@ -364,6 +405,100 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, editItem }) => {
         </div>
       )}
       <SaveBtn onClick={() => onSave(f)} label={editItem ? "💾 Update Load" : "✅ Save Load"} loading={saving} />
+    </ModalShell>
+  );
+};
+
+// ─── DRIVER PROFILE FORM ──────────────────────────────────────────────────────
+const DriverProfileForm = ({ onClose, onSave, saving, editItem }) => {
+  const [f, setF] = useState(editItem || { name: "", email: "", phone: "", cpm: "", notes: "", active: true });
+  return (
+    <ModalShell title={editItem ? "✏️ Edit Driver" : "👤 Add Driver"} onClose={onClose}>
+      <div style={fgrid}>
+        <Field label="Driver Full Name" value={f.name || ""} onChange={v => setF(p => ({ ...p, name: v }))} placeholder="Full name" />
+        <Field label="Phone Number" value={f.phone || ""} onChange={v => setF(p => ({ ...p, phone: v }))} placeholder="555-000-0000" />
+        <Field label="Email" value={f.email || ""} onChange={v => setF(p => ({ ...p, email: v }))} placeholder="driver@email.com" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <label style={labelStyle}>Pay Rate (¢ per mile)</label>
+          <input type="number" value={f.cpm || ""} onChange={e => setF(p => ({ ...p, cpm: e.target.value }))} placeholder="e.g. 0.55" step="0.01" style={inputStyle} />
+          {f.cpm > 0 && <div style={{ color: "#16a34a", fontSize: 11 }}>= {fmt$(Number(f.cpm) * 500)} per 500 miles · {fmt$(Number(f.cpm) * 1000)} per 1000 miles</div>}
+        </div>
+        <Field label="Status" value={f.active ? "active" : "inactive"} onChange={v => setF(p => ({ ...p, active: v === "active" }))} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }]} />
+        <Field label="Notes" value={f.notes || ""} onChange={v => setF(p => ({ ...p, notes: v }))} placeholder="Any notes..." />
+      </div>
+      <SaveBtn onClick={() => onSave(f)} label={editItem ? "💾 Update Driver" : "✅ Add Driver"} loading={saving} />
+    </ModalShell>
+  );
+};
+
+// ─── REPAIR RECEIPT MODAL ─────────────────────────────────────────────────────
+const RepairReceiptModal = ({ onClose, onSave, saving, trucks }) => {
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [f, setF] = useState({ date: today(), truckId: trucks[0]?.id || "", category: "Repairs", description: "", amount: "" });
+  const fileRef = useRef();
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = ev => res(ev.target.result); r.onerror = rej; r.readAsDataURL(file); });
+    setPreview(b64);
+    setScanning(true);
+    try {
+      const mediaType = file.type || "image/jpeg";
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514", max_tokens: 500,
+          messages: [{ role: "user", content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: b64.split(",")[1] } },
+            { type: "text", text: `This is a repair/expense receipt. Extract: vendor name, total amount, date, description of work/items. Return ONLY JSON: {"vendor":"name","amount":number,"date":"YYYY-MM-DD or null","description":"what was repaired/purchased"}` }
+          ]}]
+        })
+      });
+      const data = await response.json();
+      const text = data.content?.[0]?.text || "{}";
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      setResult(parsed);
+      setF(p => ({ ...p, description: parsed.vendor ? `${parsed.vendor} — ${parsed.description}` : parsed.description || "", amount: parsed.amount ? String(parsed.amount) : "", date: parsed.date || today() }));
+    } catch { }
+    setScanning(false);
+  };
+
+  return (
+    <ModalShell title="🧾 Scan Repair Receipt" onClose={onClose} wide>
+      <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 18px", marginBottom: 18 }}>
+        <div style={{ color: "#92400e", fontWeight: 700, marginBottom: 4 }}>Take a photo of any receipt — AI reads it and fills in the details automatically.</div>
+      </div>
+      <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" style={{ display: "none" }} onChange={handleFile} />
+      {!preview ? (
+        <div style={{ border: "2px dashed #d1d5db", borderRadius: 12, padding: 40, textAlign: "center", cursor: "pointer", background: "#f9fafb", marginBottom: 16 }} onClick={() => fileRef.current?.click()} onMouseEnter={e => e.currentTarget.style.borderColor = "#d97706"} onMouseLeave={e => e.currentTarget.style.borderColor = "#d1d5db"}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🧾</div>
+          <div style={{ color: "#374151", fontSize: 16, fontWeight: 700 }}>Click to scan / photo receipt</div>
+          <div style={{ color: "#9ca3af", fontSize: 13 }}>Repair bill, parts receipt, any expense</div>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 16 }}>
+          {preview.startsWith("data:image") && <img src={preview} style={{ width: "100%", borderRadius: 10, marginBottom: 10, maxHeight: 200, objectFit: "cover" }} alt="receipt" />}
+          {scanning ? <div style={{ textAlign: "center", padding: "16px 0", color: "#d97706", fontWeight: 700 }}>🤖 AI reading receipt...</div>
+            : result && <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ color: "#166534", fontWeight: 700, marginBottom: 4 }}>✅ Receipt read! Review below:</div>
+              {result.vendor && <div style={{ color: "#15803d", fontSize: 13 }}>🏪 {result.vendor}</div>}
+            </div>}
+          <button onClick={() => { setPreview(null); setResult(null); }} style={{ background: "#f3f4f6", border: "1.5px solid #e5e7eb", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#374151", fontWeight: 600 }}>🔄 Retake</button>
+        </div>
+      )}
+      <div style={fgrid}>
+        <Field label="Date" type="date" value={f.date} onChange={v => setF(p => ({ ...p, date: v }))} />
+        <Field label="Truck" value={f.truckId} onChange={v => setF(p => ({ ...p, truckId: v }))} options={trucks.map(t => ({ value: t.id, label: t.name }))} />
+        <Field label="Category" value={f.category} onChange={v => setF(p => ({ ...p, category: v }))} options={["Repairs","Maintenance","Tires","Equipment","Other"]} />
+        <Field label="Amount ($)" type="number" value={f.amount} onChange={v => setF(p => ({ ...p, amount: v }))} placeholder="0.00" />
+        <Field label="Description" value={f.description} onChange={v => setF(p => ({ ...p, description: v }))} placeholder="What was repaired / purchased?" span />
+      </div>
+      {f.amount && <div style={{ background: "#fef2f2", border: "1.5px solid #fecaca", borderRadius: 10, padding: "12px", marginBottom: 14, textAlign: "center", color: "#dc2626", fontFamily: "monospace", fontWeight: 900, fontSize: 22 }}>{fmt$(f.amount)}</div>}
+      <SaveBtn onClick={() => onSave(f)} label="✅ Save Expense" loading={saving} />
     </ModalShell>
   );
 };
@@ -661,6 +796,7 @@ export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [maintenance, setMaintenance] = useState([]);
   const [insurance, setInsurance] = useState([]);
+  const [driverProfiles, setDriverProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState("dashboard");
@@ -685,7 +821,7 @@ export default function App() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [t, tr, l, f, e, m, ins] = await Promise.all([
+      const [t, tr, l, f, e, m, ins, dr] = await Promise.all([
         db.from("trucks").select("*").order("created_at"),
         db.from("trailers").select("*").order("created_at"),
         db.from("loads").select("*").order("date", { ascending: false }),
@@ -693,14 +829,16 @@ export default function App() {
         db.from("expenses").select("*").order("date", { ascending: false }),
         db.from("maintenance").select("*").order("date", { ascending: false }),
         db.from("insurance").select("*").order("created_at", { ascending: false }),
+        db.from("drivers").select("*").order("name"),
       ]);
       if (t.data) setTrucks(t.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, color: r.color, active: r.active })));
       if (tr.data) setTrailers(tr.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, type: r.type, color: r.color, active: r.active })));
-      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverPct: r.driver_pct, truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "" })));
+      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverCpm: r.driver_cpm || 0, driverOopExpenses: r.driver_oop_expenses || 0, truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "" })));
       if (f.data) setFuelLog(f.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, gallons: r.gallons, pricePer: r.price_per, total: r.total, location: r.location, loadNum: r.load_num })));
       if (e.data) setExpenses(e.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, category: r.category, description: r.description, amount: r.amount })));
       if (m.data) setMaintenance(m.data.map(r => ({ id: r.id, entityId: r.entity_id, entityType: r.entity_type, category: r.category, description: r.description, date: r.date, milesAtService: r.miles_at_service, nextDueMiles: r.next_due_miles, nextDueDate: r.next_due_date, cost: r.cost, position: r.position, notes: r.notes })));
       if (ins.data) setInsurance(ins.data.map(r => ({ id: r.id, provider: r.provider, policyNumber: r.policy_number, coverageType: r.coverage_type, premiumAmount: r.premium_amount, paymentFrequency: r.payment_frequency, startDate: r.start_date, endDate: r.end_date, entityId: r.entity_id, notes: r.notes })));
+      if (dr.data) setDriverProfiles(dr.data.map(r => ({ id: r.id, name: r.name, email: r.email, phone: r.phone, cpm: r.cpm, active: r.active, notes: r.notes })));
     } catch { showToast("Error loading data", "error"); }
     setLoading(false);
   };
@@ -714,13 +852,13 @@ export default function App() {
 
   const saveLoad = async (f) => {
     if (!f.loadNum || !f.rate) return; setSaving(true);
-    const { error } = await db.from("loads").upsert({ id: editItem?.id || uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver, driver_pct: Number(f.driverPct || 28), truck_id: f.truckId, trailer_id: f.trailerId || null, status: f.status, lumper_cost: Number(f.lumperCost || 0), lumper_paid_by: f.lumperPaidBy || "Out of Pocket", lumper_reimbursed: f.lumperReimbursed || "No", lumper_reimbursed_amount: Number(f.lumperReimbursedAmount || 0), toll: Number(f.toll || 0), factoring_status: f.factoringStatus || "Not Submitted", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
+    const { error } = await db.from("loads").upsert({ id: editItem?.id || uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver, driver_cpm: Number(f.driverCpm || 0), driver_oop_expenses: Number(f.driverOopExpenses || 0), truck_id: f.truckId, trailer_id: f.trailerId || null, status: f.status, lumper_cost: Number(f.lumperCost || 0), lumper_paid_by: f.lumperPaidBy || "Out of Pocket", lumper_reimbursed: f.lumperReimbursed || "No", lumper_reimbursed_amount: Number(f.lumperReimbursedAmount || 0), toll: Number(f.toll || 0), factoring_status: f.factoringStatus || "Not Submitted", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
     if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Load updated ✓" : "Load added ✓"); } setSaving(false);
   };
 
   const saveLoadDirect = async (f) => {
     if (!f.loadNum || !f.rate) { showToast("Missing load # or rate", "error"); return; } setSaving(true);
-    const { error } = await db.from("loads").upsert({ id: uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver || "", driver_pct: Number(f.driverPct || 28), truck_id: f.truckId || trucks[0]?.id || "", trailer_id: f.trailerId || null, status: f.status || "Pending", lumper_cost: 0, lumper_paid_by: "Out of Pocket", lumper_reimbursed: "No", lumper_reimbursed_amount: 0, toll: 0, factoring_status: f.factoringStatus || "Ready to Factor", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
+    const { error } = await db.from("loads").upsert({ id: uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver || "", driver_cpm: 0, driver_oop_expenses: 0, truck_id: f.truckId || trucks[0]?.id || "", trailer_id: f.trailerId || null, status: f.status || "Pending", lumper_cost: 0, lumper_paid_by: "Out of Pocket", lumper_reimbursed: "No", lumper_reimbursed_amount: 0, toll: 0, factoring_status: f.factoringStatus || "Ready to Factor", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
     if (error) showToast("Save failed", "error"); else { await fetchAll(); showToast("Load saved from rate con ✓"); } setSaving(false);
   };
 
@@ -742,6 +880,8 @@ export default function App() {
     setSaving(false);
   };
   const saveInsurance = async (f) => { if (!f.provider || !f.premium_amount) return; setSaving(true); const { error } = await db.from("insurance").upsert({ id: editItem?.id || uid(), provider: f.provider, policy_number: f.policy_number || "", coverage_type: f.coverage_type, premium_amount: Number(f.premium_amount), payment_frequency: f.payment_frequency, start_date: f.start_date, end_date: f.end_date || null, entity_id: f.entity_id, entity_type: f.entity_type || "fleet", notes: f.notes || "" }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast("Policy saved ✓"); } setSaving(false); };
+  const saveDriver = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("drivers").upsert({ id: editItem?.id || uid(), name: f.name, email: f.email || "", phone: f.phone || "", cpm: Number(f.cpm || 0), active: f.active !== false, notes: f.notes || "" }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Driver updated ✓" : "Driver added ✓"); } setSaving(false); };
+  const delDriver = async (id) => { if (!confirm("Delete driver?")) return; await db.from("drivers").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
   const importFuel = async (rows) => { setSaving(true); const { error } = await db.from("fuel").upsert(rows); if (error) showToast("Import failed", "error"); else { await fetchAll(); showToast(`${rows.length} transactions imported ✓`); } setSaving(false); };
   const delLoad = async (id) => { if (!confirm("Delete?")) return; await db.from("loads").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
   const delFuel = async (id) => { if (!confirm("Delete?")) return; await db.from("fuel").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
@@ -754,7 +894,7 @@ export default function App() {
   const filtFuel = truckView === "FLEET" ? fuelLog : fuelLog.filter(f => f.truckId === truckView);
   const filtExp = truckView === "FLEET" ? expenses : expenses.filter(e => e.truckId === truckView || e.truckId === "FLEET");
   const totalRev = filtLoads.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-  const totalDPay = filtLoads.reduce((s, l) => { const g = Number(l.rate || 0) + Number(l.detention || 0); return s + g * (Number(l.driverPct || 0) / 100); }, 0);
+  const totalDPay = filtLoads.reduce((s, l) => { const pay = Number(l.driverCpm || 0) * Number(l.miles || 0); return s + pay + Number(l.driverOopExpenses || 0); }, 0);
   const totalFuel = filtFuel.reduce((s, f) => s + Number(f.total || 0), 0);
   const totalExp = filtExp.reduce((s, e) => s + Number(e.amount || 0), 0);
   const totalMiles = filtLoads.reduce((s, l) => s + Number(l.miles || 0), 0);
@@ -775,7 +915,7 @@ export default function App() {
     const tf2 = fuelLog.filter(f => f.truckId === t.id);
     const te = expenses.filter(e => e.truckId === t.id);
     const rev = tl.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-    const dp = tl.reduce((s, l) => { const g = Number(l.rate || 0) + Number(l.detention || 0); return s + g * (Number(l.driverPct || 0) / 100); }, 0);
+    const dp = tl.reduce((s, l) => { const pay = Number(l.driverCpm || 0) * Number(l.miles || 0); return s + pay + Number(l.driverOopExpenses || 0); }, 0);
     const fuel = tf2.reduce((s, f) => s + Number(f.total || 0), 0);
     const exp = te.reduce((s, e) => s + Number(e.amount || 0), 0);
     const mi = tl.reduce((s, l) => s + Number(l.miles || 0), 0);
@@ -800,7 +940,15 @@ export default function App() {
   loads.forEach(l => { const key = `${l.origin?.split(",")[0]?.trim()} → ${l.dest?.split(",")[0]?.trim()}`; if (!laneMap[key]) laneMap[key] = { lane: key, loads: 0, miles: 0, revenue: 0, profit: 0 }; const g = Number(l.rate || 0) + Number(l.detention || 0); laneMap[key].loads++; laneMap[key].miles += Number(l.miles || 0); laneMap[key].revenue += g; laneMap[key].profit += g - g * (Number(l.driverPct || 0) / 100); });
   const lanes = Object.values(laneMap).sort((a, b) => b.revenue - a.revenue);
   const driverNames = [...new Set(loads.map(l => l.driver).filter(Boolean))];
-  const driverStats = driverNames.map(name => { const dl = loads.filter(l => l.driver === name); const rev = dl.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0); const pay = dl.reduce((s, l) => { const g = Number(l.rate || 0) + Number(l.detention || 0); return s + g * (Number(l.driverPct || 0) / 100); }, 0); const mi = dl.reduce((s, l) => s + Number(l.miles || 0), 0); const det = dl.reduce((s, l) => s + Number(l.detention || 0), 0); return { name, loads: dl.length, rev, pay, mi, det, pct: dl[0]?.driverPct || 28 }; });
+  const driverStats = driverNames.map(name => {
+    const dl = loads.filter(l => l.driver === name);
+    const rev = dl.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
+    const pay = dl.reduce((s, l) => { return s + Number(l.driverCpm || 0) * Number(l.miles || 0) + Number(l.driverOopExpenses || 0); }, 0);
+    const mi = dl.reduce((s, l) => s + Number(l.miles || 0), 0);
+    const det = dl.reduce((s, l) => s + Number(l.detention || 0), 0);
+    const profile = driverProfiles.find(d => d.name === name);
+    return { name, loads: dl.length, rev, pay, mi, det, cpm: profile?.cpm || dl[0]?.driverCpm || 0 };
+  });
   const getPaystubLoads = (driver) => { const now = new Date(); return loads.filter(l => { if (l.driver !== driver) return false; const d = new Date(l.date); if (paystubPeriod === "weekly") return (now - d) / 86400000 <= 7; if (paystubPeriod === "biweekly") return (now - d) / 86400000 <= 14; if (paystubPeriod === "monthly") return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); return true; }); };
 
   // ─── STYLES ────────────────────────────────────────────────────────────────
@@ -1101,7 +1249,7 @@ export default function App() {
     const byCat = [...new Set(filtExp.map(e => e.category))].map(c => ({ c, t: filtExp.filter(e => e.category === c).reduce((s, e) => s + Number(e.amount || 0), 0) }));
     return (
       <>
-        <div style={S.ph}><div><h1 style={S.h1}>Expenses</h1></div><PrimaryBtn onClick={() => { setEditItem(null); setModal("expense"); }}>+ Add Expense</PrimaryBtn></div>
+        <div style={S.ph}><div><h1 style={S.h1}>Expenses</h1></div><div style={{ display: "flex", gap: 10 }}><button onClick={() => setModal("repairReceipt")} style={{ background: "#fff7ed", color: "#ea580c", border: "1.5px solid #ea580c", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>🧾 Scan Receipt</button><PrimaryBtn onClick={() => { setEditItem(null); setModal("expense"); }}>+ Add Expense</PrimaryBtn></div></div>
         <TruckBar />
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
           {byCat.map(ec => (<div key={ec.c} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 10, padding: "12px 16px", minWidth: 130 }}><div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{ec.c}</div><div style={{ color: "#d97706", fontFamily: "monospace", fontWeight: 800, fontSize: 18, marginTop: 4 }}>{fmt$(ec.t)}</div></div>))}
@@ -1117,14 +1265,90 @@ export default function App() {
 
   const Drivers = () => (
     <>
-      <div style={S.ph}><div><h1 style={S.h1}>Drivers & Paystubs</h1><div style={{ color: "#6b7280", fontSize: 12, marginTop: 3 }}>Drivers appear automatically from loads</div></div></div>
+      <div style={S.ph}>
+        <div><h1 style={S.h1}>Drivers & Paystubs</h1><div style={{ color: "#6b7280", fontSize: 12, marginTop: 3 }}>Manage driver profiles and view pay history</div></div>
+        <PrimaryBtn onClick={() => { setEditItem(null); setModal("driver"); }}>+ Add Driver</PrimaryBtn>
+      </div>
+
+      {/* Driver Profiles */}
+      {driverProfiles.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>Driver Profiles ({driverProfiles.length})</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
+            {driverProfiles.map(d => {
+              const stats = driverStats.find(s => s.name === d.name);
+              return (
+                <div key={d.id} style={S.card}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg,#d97706,#b45309)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 900, color: "#fff" }}>{d.name.split(" ").map(n => n[0]).join("").slice(0, 2)}</div>
+                      <div><div style={{ color: "#111827", fontWeight: 800, fontSize: 15 }}>{d.name}</div><div style={{ color: "#6b7280", fontSize: 12 }}>💰 ${fmtN(d.cpm, 2)}/mile CPM</div></div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button style={S.btnEdt} onClick={() => { setEditItem(d); setModal("driver"); }}>Edit</button>
+                      <button style={S.btnDel} onClick={() => delDriver(d.id)}>Del</button>
+                    </div>
+                  </div>
+                  {d.phone && <div style={{ color: "#6b7280", fontSize: 12, marginBottom: 4 }}>📞 {d.phone}</div>}
+                  {stats && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+                      {[{ l: "Loads", v: stats.loads }, { l: "Miles", v: fmtMi(stats.mi) }, { l: "Total Pay", v: fmt$(stats.pay) }].map(r => (
+                        <div key={r.l} style={{ background: "#f9fafb", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700 }}>{r.l}</div>
+                          <div style={{ color: "#d97706", fontWeight: 800, fontSize: 13, marginTop: 2 }}>{r.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Pay period selector */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20 }}>
         <div style={{ color: "#374151", fontSize: 13, fontWeight: 600 }}>Pay Period:</div>
         {["weekly", "biweekly", "monthly", "all"].map(p => (<button key={p} onClick={() => setPaystubPeriod(p)} style={{ background: paystubPeriod === p ? "#d97706" : "#fff", border: `1.5px solid ${paystubPeriod === p ? "#d97706" : "#d1d5db"}`, borderRadius: 8, padding: "7px 16px", color: paystubPeriod === p ? "#fff" : "#374151", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>))}
       </div>
-      {driverStats.length === 0 && (<div style={{ ...S.card, textAlign: "center", padding: 48 }}><div style={{ fontSize: 48, marginBottom: 16 }}>👤</div><div style={{ color: "#111827", fontWeight: 700, fontSize: 16, marginBottom: 8 }}>No drivers yet</div><div style={{ color: "#6b7280", fontSize: 14, marginBottom: 24 }}>Add a load with a driver name and they appear here automatically.</div><PrimaryBtn onClick={() => { setEditItem(null); setModal("load"); }}>+ Add Your First Load</PrimaryBtn></div>)}
+
+      {driverStats.length === 0 && driverProfiles.length === 0 && (
+        <div style={{ ...S.card, textAlign: "center", padding: 48 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>👤</div>
+          <div style={{ color: "#111827", fontWeight: 700, fontSize: 16, marginBottom: 8 }}>No drivers yet</div>
+          <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 24 }}>Add a driver profile to set their CPM rate, or add a load with a driver name.</div>
+          <PrimaryBtn onClick={() => { setEditItem(null); setModal("driver"); }}>+ Add Your First Driver</PrimaryBtn>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 18 }}>
-        {driverStats.map(d => { const periodLoads = getPaystubLoads(d.name); const periodPay = periodLoads.reduce((s, l) => { const g = Number(l.rate || 0) + Number(l.detention || 0); return s + g * (Number(l.driverPct || 0) / 100); }, 0); return (<div key={d.name} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: 22, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}><div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}><div style={{ width: 52, height: 52, borderRadius: "50%", background: "linear-gradient(135deg,#d97706,#b45309)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 900, color: "#fff" }}>{d.name.split(" ").map(n => n[0]).join("").slice(0, 2)}</div><div><div style={{ color: "#111827", fontWeight: 800, fontSize: 16 }}>{d.name}</div><div style={{ color: "#6b7280", fontSize: 12 }}>{d.pct}% pay · {d.loads} loads</div></div></div>{[{ l: "All-Time Revenue", v: fmt$(d.rev), c: "#16a34a" }, { l: "All-Time Pay", v: fmt$(d.pay), c: "#d97706" }, { l: "Total Miles", v: fmtMi(d.mi) + " mi", c: "#2563eb" }, { l: "Detention", v: fmt$(d.det), c: "#7c3aed" }].map(r => (<div key={r.l} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}><span style={{ color: "#374151", fontSize: 12 }}>{r.l}</span><span style={{ color: r.c, fontFamily: "monospace", fontWeight: 700 }}>{r.v}</span></div>))}<div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "12px 14px", margin: "14px 0" }}><div style={{ color: "#92400e", fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>{paystubPeriod.toUpperCase()} PAY ({periodLoads.length} loads)</div><div style={{ color: "#d97706", fontFamily: "monospace", fontWeight: 900, fontSize: 24 }}>{fmt$(periodPay)}</div></div><div style={{ display: "flex", gap: 8 }}><button onClick={() => printPaystub(d.name, periodLoads, paystubPeriod)} style={{ ...S.btnPrint, flex: 1, padding: "9px", textAlign: "center", fontSize: 13 }}>🖨️ Print Paystub</button><button onClick={() => { setPaystubDriver(d.name); setModal("driverLoads"); }} style={{ ...S.btnEdt, flex: 1, padding: "9px", textAlign: "center", fontSize: 13 }}>📋 View Runs</button></div></div>); })}
+        {driverStats.map(d => {
+          const periodLoads = getPaystubLoads(d.name);
+          const periodPay = periodLoads.reduce((s, l) => s + Number(l.driverCpm || 0) * Number(l.miles || 0) + Number(l.driverOopExpenses || 0), 0);
+          return (
+            <div key={d.name} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: 22, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
+                <div style={{ width: 52, height: 52, borderRadius: "50%", background: "linear-gradient(135deg,#d97706,#b45309)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 900, color: "#fff" }}>{d.name.split(" ").map(n => n[0]).join("").slice(0, 2)}</div>
+                <div><div style={{ color: "#111827", fontWeight: 800, fontSize: 16 }}>{d.name}</div><div style={{ color: "#6b7280", fontSize: 12 }}>${fmtN(d.cpm, 2)}/mi · {d.loads} loads</div></div>
+              </div>
+              {[{ l: "All-Time Revenue", v: fmt$(d.rev), c: "#16a34a" }, { l: "All-Time Pay", v: fmt$(d.pay), c: "#d97706" }, { l: "Total Miles", v: fmtMi(d.mi) + " mi", c: "#2563eb" }, { l: "Detention", v: fmt$(d.det), c: "#7c3aed" }].map(r => (
+                <div key={r.l} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
+                  <span style={{ color: "#374151", fontSize: 12 }}>{r.l}</span>
+                  <span style={{ color: r.c, fontFamily: "monospace", fontWeight: 700 }}>{r.v}</span>
+                </div>
+              ))}
+              <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "12px 14px", margin: "14px 0" }}>
+                <div style={{ color: "#92400e", fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>{paystubPeriod.toUpperCase()} PAY ({periodLoads.length} loads)</div>
+                <div style={{ color: "#d97706", fontFamily: "monospace", fontWeight: 900, fontSize: 24 }}>{fmt$(periodPay)}</div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => printPaystub(d.name, periodLoads, paystubPeriod)} style={{ ...S.btnPrint, flex: 1, padding: "9px", textAlign: "center", fontSize: 13 }}>🖨️ Print Paystub</button>
+                <button onClick={() => { setPaystubDriver(d.name); setModal("driverLoads"); }} style={{ ...S.btnEdt, flex: 1, padding: "9px", textAlign: "center", fontSize: 13 }}>📋 View Runs</button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </>
   );
@@ -1199,11 +1423,13 @@ export default function App() {
 
       {modal === "truck" && <TruckForm onClose={closeModal} onSave={saveTruck} saving={saving} trucks={trucks} editId={editItem?.id} />}
       {modal === "trailer" && <TrailerForm onClose={closeModal} onSave={saveTrailer} saving={saving} trailers={trailers} editId={editItem?.id} />}
-      {modal === "load" && <LoadForm onClose={closeModal} onSave={saveLoad} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
+      {modal === "load" && <LoadForm onClose={closeModal} onSave={saveLoad} saving={saving} trucks={trucks} trailers={trailers} drivers={driverProfiles} editItem={editItem} />}
       {modal === "fuel" && <FuelForm onClose={closeModal} onSave={saveFuel} saving={saving} trucks={trucks} editItem={editItem} />}
       {modal === "expense" && <ExpenseForm onClose={closeModal} onSave={saveExp} saving={saving} trucks={trucks} editItem={editItem} />}
+      {modal === "repairReceipt" && <RepairReceiptModal onClose={closeModal} onSave={saveExp} saving={saving} trucks={trucks} />}
       {modal === "maintenance" && <MaintenanceForm onClose={closeModal} onSave={saveMaintenance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
       {modal === "insurance" && <InsuranceForm onClose={closeModal} onSave={saveInsurance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
+      {modal === "driver" && <DriverProfileForm onClose={closeModal} onSave={saveDriver} saving={saving} editItem={editItem} />}
       {modal === "rateCon" && <RateConModal onClose={closeModal} onLoad={saveLoadDirect} trucks={trucks} trailers={trailers} />}
       {modal === "mudflap" && <MudflapModal onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
       {modal === "csvImport" && <CsvImportForm onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
