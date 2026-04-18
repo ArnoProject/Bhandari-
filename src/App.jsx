@@ -82,9 +82,14 @@ const parseWithAI = async (base64Data, mediaType, prompt) => {
       })
     });
     const data = await response.json();
-    const text = data.content?.[0]?.text || "{}";
+    if (data.error) { console.error("AI error:", data.error); return null; }
+    const text = data.content?.[0]?.text || "";
+    if (!text) return null;
+    // Try to extract JSON from the response
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
     return JSON.parse(text.replace(/```json|```/g, "").trim());
-  } catch { return null; }
+  } catch (e) { console.error("parseWithAI error:", e); return null; }
 };
 
 const parseTCSCsv = (text) => {
@@ -609,11 +614,11 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers }) => {
     try {
       const base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = ev => res(ev.target.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
       const mediaType = file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-      const result = await parseWithAI(base64, mediaType, `Extract load info from this rate confirmation. Return ONLY JSON:\n{"loadNum":"ref number","origin":"city, ST","dest":"city, ST","miles":number or null,"rate":total rate number,"detention":number or null,"broker":"broker company name","brokerMC":"MC number or null","pickupDate":"YYYY-MM-DD or null","commodity":"what is hauled"}\nReturn ONLY the JSON.`);
-      if (result) {
+      const result = await parseWithAI(base64, mediaType, `You are reading a trucking rate confirmation document. Extract all load information you can find. Return ONLY valid JSON with no other text:\n{"loadNum":"load or reference number","origin":"pickup city, ST","dest":"delivery city, ST","miles":number or null,"rate":total rate as number,"detention":number or null,"broker":"broker or shipper company name","brokerMC":"MC number or null","pickupDate":"YYYY-MM-DD or null","commodity":"what is being hauled"}\nIf you cannot find a value use null. Return ONLY the JSON object, nothing else.`);
+      if (result && (result.loadNum || result.rate || result.origin)) {
         setParsed(result);
         setF({ date: result.pickupDate || today(), loadNum: result.loadNum || "", origin: result.origin || "", dest: result.dest || "", miles: result.miles ? String(result.miles) : "", rate: result.rate ? String(result.rate) : "", detention: result.detention ? String(result.detention) : "0", driver: "", driverPct: "28", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Ready to Factor", brokerName: result.broker || "", brokerMC: result.brokerMC || "" });
-      } else setError("Could not read document. Try a clearer image or PDF.");
+      } else setError("Could not read document. Make sure it's a clear PDF or photo of the rate con. Try uploading a PDF directly if using a photo.");
     } catch { setError("Error reading file. Please try again."); }
     setParsing(false);
   };
