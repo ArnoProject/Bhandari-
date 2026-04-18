@@ -90,6 +90,21 @@ const parseWithAI = async (base64Data, mediaType, prompt) => {
     return JSON.parse(text.replace(/```json|```/g, "").trim());
   } catch (e) { console.error("parseWithAI error:", e); return null; }
 };
+        messages: [{ role: "user", content: [
+          { type: mediaType.includes("pdf") ? "document" : "image", source: { type: "base64", media_type: mediaType, data: base64Data } },
+          { type: "text", text: prompt }
+        ]}]
+      })
+    });
+    const data = await response.json();
+    if (data.error) { console.error("AI error:", data.error); return null; }
+    const text = data.content?.[0]?.text || "";
+    if (!text) return null;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+    return JSON.parse(text.replace(/```json|```/g, "").trim());
+  } catch (e) { console.error("parseWithAI error:", e); return null; }
+};
 };
 
 const parseTCSCsv = (text) => {
