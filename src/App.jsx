@@ -1199,6 +1199,8 @@ export default function App() {
   const [paystubDriver, setPaystubDriver] = useState("");
   const [paystubPeriod, setPaystubPeriod] = useState("weekly");
   const [rateConDraft, setRateConDraft] = useState(null);
+  const [directClients, setDirectClients] = useState([]);
+  const [invoices, setInvoices] = useState([]);
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2133,7 +2135,9 @@ export default function App() {
         )}
       </>
     );
-  };<><div style={S.ph}><h1 style={S.h1}>Lane Analytics</h1></div><div style={S.grid(4)}><StatCard label="Total Lanes" value={lanes.length} accent="#2563eb" icon="🗺️" /><StatCard label="Best RPM" value={lanes.length ? `$${fmtN(Math.max(...lanes.map(l => l.miles ? l.revenue / l.miles : 0)))}` : "—"} accent="#16a34a" icon="🏆" /><StatCard label="Total Miles" value={fmtMi(lanes.reduce((s, l) => s + l.miles, 0))} accent="#d97706" icon="🛣️" /><StatCard label="Total Revenue" value={fmt$(lanes.reduce((s, l) => s + l.revenue, 0))} accent="#16a34a" icon="💰" /></div><div style={S.tableWrap}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Lane", "Loads", "Miles", "Revenue", "Profit", "$/Mile", "Avg/Load"].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>{lanes.length === 0 && <tr><td colSpan={7} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No lane data yet.</td></tr>}{lanes.map((l, i) => { const rpm = l.miles ? l.revenue / l.miles : 0; return (<tr key={l.lane} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}><TD bold color={i === 0 ? "#d97706" : "#111827"}>{i === 0 ? "🏆 " : ""}{l.lane}</TD><TD mono>{l.loads}</TD><TD mono>{fmtMi(l.miles)}</TD><TD mono color="#16a34a">{fmt$(l.revenue)}</TD><TD mono color={l.profit >= 0 ? "#16a34a" : "#dc2626"}>{fmt$(l.profit)}</TD><TD mono color={rpm >= 3 ? "#16a34a" : rpm >= 2 ? "#d97706" : "#dc2626"} bold>${fmtN(rpm)}</TD><TD mono>{fmt$(l.loads ? l.revenue / l.loads : 0)}</TD></tr>); })}</tbody></table></div></div></>);
+  };
+
+  const Lanes = () => (<><div style={S.ph}><h1 style={S.h1}>Lane Analytics</h1></div><div style={S.grid(4)}><StatCard label="Total Lanes" value={lanes.length} accent="#2563eb" icon="🗺️" /><StatCard label="Best RPM" value={lanes.length ? `$${fmtN(Math.max(...lanes.map(l => l.miles ? l.revenue / l.miles : 0)))}` : "—"} accent="#16a34a" icon="🏆" /><StatCard label="Total Miles" value={fmtMi(lanes.reduce((s, l) => s + l.miles, 0))} accent="#d97706" icon="🛣️" /><StatCard label="Total Revenue" value={fmt$(lanes.reduce((s, l) => s + l.revenue, 0))} accent="#16a34a" icon="💰" /></div><div style={S.tableWrap}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Lane", "Loads", "Miles", "Revenue", "Profit", "$/Mile", "Avg/Load"].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>{lanes.length === 0 && <tr><td colSpan={7} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No lane data yet.</td></tr>}{lanes.map((l, i) => { const rpm = l.miles ? l.revenue / l.miles : 0; return (<tr key={l.lane} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}><TD bold color={i === 0 ? "#d97706" : "#111827"}>{i === 0 ? "🏆 " : ""}{l.lane}</TD><TD mono>{l.loads}</TD><TD mono>{fmtMi(l.miles)}</TD><TD mono color="#16a34a">{fmt$(l.revenue)}</TD><TD mono color={l.profit >= 0 ? "#16a34a" : "#dc2626"}>{fmt$(l.profit)}</TD><TD mono color={rpm >= 3 ? "#16a34a" : rpm >= 2 ? "#d97706" : "#dc2626"} bold>${fmtN(rpm)}</TD><TD mono>{fmt$(l.loads ? l.revenue / l.loads : 0)}</TD></tr>); })}</tbody></table></div></div></>);
 
   const Reports = () => { const netMi = avgRPM - cpm; return (<><div style={S.ph}><h1 style={S.h1}>Reports & KPIs</h1></div><TruckBar /><div style={S.grid(4)}><StatCard label="Cost/Mile" value={"$" + fmtN(cpm)} sub="All-in CPM" accent="#dc2626" icon="⚙️" /><StatCard label="Revenue/Mile" value={"$" + fmtN(avgRPM)} sub="Gross RPM" accent="#16a34a" icon="💹" /><StatCard label="Net/Mile" value={"$" + fmtN(netMi)} sub="After all costs" accent={netMi >= 0 ? "#16a34a" : "#dc2626"} icon="🎯" /><StatCard label="Fuel%Rev" value={fmtN(totalRev ? totalFuel / totalRev * 100 : 0) + "%"} sub="Target <25%" accent="#7c3aed" icon="⛽" /></div><div style={S.card}><div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 16, textTransform: "uppercase" }}>KPI Benchmarks</div>{[{ l: "Revenue/Mile", v: avgRPM, target: 3.0, f: v => `$${fmtN(v)}`, note: "target $3.00+" }, { l: "Profit Margin", v: margin, target: 15, f: v => `${fmtN(v)}%`, note: "target 15%+" }, { l: "Cost/Mile", v: cpm, target: 2.5, f: v => `$${fmtN(v)}`, note: "target <$2.50", inv: true }, { l: "Fuel%Rev", v: totalRev ? totalFuel / totalRev * 100 : 0, target: 25, f: v => `${fmtN(v)}%`, note: "target <25%", inv: true }, { l: "Fleet MPG", v: mpg, target: 6.5, f: v => `${fmtN(v, 1)}`, note: "target 6.5+" }].map(k => { const good = k.inv ? k.v <= k.target : k.v >= k.target; const pct = Math.min(100, Math.abs((k.v / k.target) * 100)); return (<div key={k.l} style={{ marginBottom: 18 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ color: "#374151", fontSize: 13, fontWeight: 600 }}>{k.l}</span><span style={{ color: good ? "#16a34a" : "#dc2626", fontWeight: 700, fontFamily: "monospace" }}>{k.f(k.v)} <span style={{ color: "#9ca3af", fontSize: 10, fontWeight: 400 }}>({k.note})</span></span></div><div style={{ background: "#e5e7eb", borderRadius: 99, height: 7 }}><div style={{ width: `${pct}%`, height: "100%", background: good ? "#16a34a" : "#dc2626", borderRadius: 99 }} /></div></div>); })}</div></>); };
 
@@ -2278,10 +2282,23 @@ export default function App() {
               <Field label="Notes" value={invF.notes || ""} onChange={v => setInvF(p => ({ ...p, notes: v }))} placeholder="Optional notes..." span />
             </div>
             {invF.amount && (
-              <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "14px", marginBottom: 14, textAlign: "center" }}>
-                <div style={{ color: "#6b7280", fontSize: 11, marginBottom: 4 }}>INVOICE TOTAL</div>
-                <div style={{ color: "#16a34a", fontFamily: "monospace", fontWeight: 900, fontSize: 28 }}>{fmt$(invF.amount)}</div>
-                <div style={{ color: "#6b7280", fontSize: 11, marginTop: 4 }}>Due: {invF.dueDate} · {directClients.find(c => c.id === invF.clientId)?.paymentTerms || "Net 2"}</div>
+              <div style={{ background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 10, padding: "16px", marginBottom: 14 }}>
+                <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>Invoice Summary</div>
+                {[
+                  { l: "Load Rate", v: fmt$(invF.amount) },
+                  { l: "Detention", v: fmt$(loads.find(l => l.id === invF.loadId)?.detention || 0) },
+                  { l: "Subtotal", v: fmt$(invF.amount), bold: true },
+                  { l: "Tax (0%)", v: "$0.00" },
+                ].map(r => (
+                  <div key={r.l} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #e5e7eb" }}>
+                    <span style={{ color: "#6b7280", fontSize: 13 }}>{r.l}</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: r.bold ? 700 : 500, color: "#111827" }}>{r.v}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", marginTop: 4, background: "#1e293b", margin: "8px -16px -16px", borderRadius: "0 0 10px 10px", padding: "14px 16px" }}>
+                  <span style={{ color: "#fff", fontWeight: 900, fontSize: 15 }}>TOTAL DUE</span>
+                  <span style={{ color: "#4ade80", fontFamily: "monospace", fontWeight: 900, fontSize: 20 }}>{fmt$(invF.amount)}</span>
+                </div>
               </div>
             )}
             <SaveBtn onClick={() => { saveInvoice(invF); setShowInvForm(false); }} label="✅ Create Invoice" loading={saving} />
@@ -2336,7 +2353,6 @@ export default function App() {
         {tab === "invoices" && <Invoices />}
         {tab === "lanes" && <Lanes />}
         {tab === "reports" && <Reports />}
-        {tab === "invoices" && <Invoices />}
       </div>
 
       {modal === "truck" && <TruckForm onClose={closeModal} onSave={saveTruck} saving={saving} trucks={trucks} editId={editItem?.id} />}
