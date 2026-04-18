@@ -111,8 +111,11 @@ const parseTCSCsv = (text) => {
 
 const printPaystub = (driver, driverLoads, period) => {
   const totalGross = driverLoads.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-  const totalPay = driverLoads.reduce((s, l) => s + Number(l.driverCpm || 0) * Number(l.miles || 0) + Number(l.driverOopExpenses || 0), 0);
-  const totalMiles = driverLoads.reduce((s, l) => s + Number(l.miles || 0), 0);
+  const totalPay = driverLoads.reduce((s, l) => {
+    const mi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+    return s + Number(l.driverCpm || 0) * mi + Number(l.driverOopExpenses || 0);
+  }, 0);
+  const totalMiles = driverLoads.reduce((s, l) => s + (l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0)), 0);
   const totalDetention = driverLoads.reduce((s, l) => s + Number(l.detention || 0), 0);
   const w = window.open("", "_blank");
   w.document.write(`<html><head><title>Paystub - ${driver}</title><style>body{font-family:'Courier New',monospace;max-width:700px;margin:40px auto;color:#111}.header{text-align:center;border-bottom:3px solid #000;padding-bottom:20px;margin-bottom:20px}.row{display:flex;justify-content:space-between;padding:5px 0;font-size:14px}.row.total{font-weight:900;font-size:17px;border-top:2px solid #000;margin-top:10px;padding-top:10px}.load-row{display:grid;grid-template-columns:1fr 2fr 1fr 1fr 1fr;gap:8px;padding:6px 0;border-bottom:1px solid #eee;font-size:12px}.section-title{font-weight:900;font-size:12px;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:10px;margin-top:20px}</style></head><body><div class="header"><div style="font-size:24px;font-weight:900">⛟ BHANDARI LOGISTICS LLC</div><div>DRIVER PAY STATEMENT</div></div><div class="row"><span>Driver:</span><span><b>${driver}</b></span></div><div class="row"><span>Period:</span><span>${period}</span></div><div class="row"><span>Loads:</span><span>${driverLoads.length}</span></div><div class="row"><span>Miles:</span><span>${fmtMi(totalMiles)}</span></div><div class="section-title">Load Detail</div>${driverLoads.map(l => { const g = Number(l.rate || 0) + Number(l.detention || 0); const pay = g * (Number(l.driverPct || 0) / 100); return `<div class="load-row"><span>${l.loadNum}</span><span>${(l.origin||'').split(',')[0]} → ${(l.dest||'').split(',')[0]}</span><span>${fmtMi(l.miles)}mi</span><span>${fmt$(g)}</span><span>${fmt$(pay)}</span></div>`; }).join('')}<div class="section-title">Summary</div><div class="row"><span>Gross:</span><span>${fmt$(totalGross)}</span></div><div class="row"><span>Detention:</span><span>${fmt$(totalDetention)}</span></div><div class="row total"><span>TOTAL PAY:</span><span>${fmt$(totalPay)}</span></div><script>window.onload=()=>window.print();</script></body></html>`);
@@ -298,7 +301,7 @@ const MaintenanceForm = ({ onClose, onSave, saving, trucks, trailers, editItem }
 };
 
 const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem }) => {
-  const [f, setF] = useState(editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverCpm: "0", driverOopExpenses: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "" });
+  const [f, setF] = useState(editItem || { date: today(), loadNum: "", origin: "", dest: "", miles: "", rate: "", detention: "0", driver: "", driverCpm: "0", driverOopExpenses: "0", isTeamLoad: false, driver2: "", driver2Cpm: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Not Submitted", brokerName: "", brokerMC: "" });
   const [originCoords, setOriginCoords] = useState(null);
   const [destCoords, setDestCoords] = useState(null);
   const [calcingMiles, setCalcingMiles] = useState(false);
@@ -311,12 +314,19 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
     const profile = drivers.find(d => d.name === name);
     setF(p => ({ ...p, driver: name, driverCpm: profile ? String(profile.cpm) : p.driverCpm }));
   };
+  const handleDriver2Select = (name) => {
+    const profile = drivers.find(d => d.name === name);
+    setF(p => ({ ...p, driver2: name, driver2Cpm: profile ? String(profile.cpm) : p.driver2Cpm }));
+  };
 
   const g = Number(f.rate || 0) + Number(f.detention || 0);
-  const driverPay = Number(f.driverCpm || 0) * Number(f.miles || 0);
+  const splitMiles = f.isTeamLoad ? Number(f.miles || 0) / 2 : Number(f.miles || 0);
+  const driverPay = Number(f.driverCpm || 0) * splitMiles;
+  const driver2Pay = f.isTeamLoad ? Number(f.driver2Cpm || 0) * splitMiles : 0;
+  const totalDriverPay = driverPay + driver2Pay;
   const driverOop = Number(f.driverOopExpenses || 0);
   const lumperNet = f.lumperPaidBy === "Out of Pocket" && f.lumperReimbursed !== "Yes" ? Number(f.lumperCost || 0) : 0;
-  const profit = g - driverPay - driverOop - lumperNet - Number(f.toll || 0);
+  const profit = g - totalDriverPay - driverOop - lumperNet - Number(f.toll || 0);
   const fct = calcFactoring(g);
 
   return (
@@ -332,28 +342,65 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
 
       {/* Driver section */}
       <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
-        <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>👤 DRIVER & PAY</div>
-        <div style={fgrid}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <label style={labelStyle}>Driver Name</label>
-            <input list="driverList" value={f.driver || ""} onChange={e => handleDriverSelect(e.target.value)} placeholder="Type or select driver" style={inputStyle} />
-            <datalist id="driverList">{drivers.map(d => <option key={d.id} value={d.name} />)}</datalist>
-            {drivers.find(d => d.name === f.driver) && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ Driver profile loaded — CPM auto-filled</div>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12 }}>👤 DRIVER & PAY</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <label style={{ color: "#92400e", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              <input type="checkbox" checked={f.isTeamLoad || false} onChange={e => setF(p => ({ ...p, isTeamLoad: e.target.checked }))} style={{ marginRight: 6 }} />
+              🚛🚛 Team Load (2 drivers)
+            </label>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <label style={labelStyle}>Driver Pay (¢/mile CPM)</label>
-            <input type="number" value={f.driverCpm || "0"} onChange={e => setF(p => ({ ...p, driverCpm: e.target.value }))} placeholder="0.55" style={inputStyle} />
-            {f.driverCpm > 0 && f.miles > 0 && <div style={{ color: "#d97706", fontSize: 11 }}>= {fmt$(driverPay)} for {fmtMi(f.miles)} miles</div>}
+        </div>
+
+        {/* Driver 1 */}
+        <div style={{ marginBottom: f.isTeamLoad ? 14 : 0 }}>
+          {f.isTeamLoad && <div style={{ color: "#92400e", fontSize: 11, fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>Driver 1</div>}
+          <div style={fgrid}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <label style={labelStyle}>Driver Name</label>
+              <input list="driverList" value={f.driver || ""} onChange={e => handleDriverSelect(e.target.value)} placeholder="Type or select driver" style={inputStyle} />
+              <datalist id="driverList">{drivers.map(d => <option key={d.id} value={d.name} />)}</datalist>
+              {drivers.find(d => d.name === f.driver) && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ CPM auto-filled</div>}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <label style={labelStyle}>CPM ($/mile){f.isTeamLoad ? " — split miles" : ""}</label>
+              <input type="number" value={f.driverCpm || "0"} onChange={e => setF(p => ({ ...p, driverCpm: e.target.value }))} placeholder="0.55" style={inputStyle} />
+              {f.driverCpm > 0 && f.miles > 0 && <div style={{ color: "#d97706", fontSize: 11 }}>= {fmt$(driverPay)} for {fmtMi(splitMiles)} mi{f.isTeamLoad ? " (½ miles)" : ""}</div>}
+            </div>
           </div>
+        </div>
+
+        {/* Driver 2 — only shown for team loads */}
+        {f.isTeamLoad && (
+          <div style={{ borderTop: "1px dashed #fde68a", paddingTop: 14 }}>
+            <div style={{ color: "#92400e", fontSize: 11, fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>Driver 2</div>
+            <div style={fgrid}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <label style={labelStyle}>Driver 2 Name</label>
+                <input list="driverList2" value={f.driver2 || ""} onChange={e => handleDriver2Select(e.target.value)} placeholder="Type or select driver" style={inputStyle} />
+                <datalist id="driverList2">{drivers.map(d => <option key={d.id} value={d.name} />)}</datalist>
+                {drivers.find(d => d.name === f.driver2) && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ CPM auto-filled</div>}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <label style={labelStyle}>CPM ($/mile) — split miles</label>
+                <input type="number" value={f.driver2Cpm || "0"} onChange={e => setF(p => ({ ...p, driver2Cpm: e.target.value }))} placeholder="0.55" style={inputStyle} />
+                {f.driver2Cpm > 0 && f.miles > 0 && <div style={{ color: "#d97706", fontSize: 11 }}>= {fmt$(driver2Pay)} for {fmtMi(splitMiles)} mi (½ miles)</div>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* OOP + Total */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             <label style={labelStyle}>Driver Out of Pocket Expenses ($)</label>
             <input type="number" value={f.driverOopExpenses || "0"} onChange={e => setF(p => ({ ...p, driverOopExpenses: e.target.value }))} placeholder="0.00" style={inputStyle} />
-            <div style={{ color: "#6b7280", fontSize: 10 }}>Tolls, parking, scale tickets paid by driver</div>
+            <div style={{ color: "#6b7280", fontSize: 10 }}>Tolls, parking, scale tickets</div>
           </div>
           <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #fde68a" }}>
             <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700 }}>TOTAL DRIVER COST</div>
-            <div style={{ color: "#d97706", fontFamily: "monospace", fontWeight: 900, fontSize: 18, marginTop: 4 }}>{fmt$(driverPay + driverOop)}</div>
-            <div style={{ color: "#9ca3af", fontSize: 10 }}>Pay + expenses</div>
+            <div style={{ color: "#d97706", fontFamily: "monospace", fontWeight: 900, fontSize: 18, marginTop: 4 }}>{fmt$(totalDriverPay + driverOop)}</div>
+            {f.isTeamLoad && <div style={{ color: "#9ca3af", fontSize: 10 }}>{fmt$(driverPay)} + {fmt$(driver2Pay)}</div>}
           </div>
         </div>
       </div>
@@ -601,7 +648,7 @@ const FactoringDetailModal = ({ load, truck, trailer, onClose, onUpdateStatus })
   );
 };
 
-const RateConModal = ({ onClose, onLoad, trucks, trailers }) => {
+const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers }) => {
   const [parsing, setParsing] = useState(false);
   const [f, setF] = useState(null);
   const [parsed, setParsed] = useState(null);
@@ -616,11 +663,17 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers }) => {
       const result = await parseWithAI(base64, mediaType, `You are reading a trucking rate confirmation document. Extract all load information you can find. Return ONLY valid JSON with no other text:\n{"loadNum":"load or reference number","origin":"pickup city, ST","dest":"delivery city, ST","miles":number or null,"rate":total rate as number,"detention":number or null,"broker":"broker or shipper company name","brokerMC":"MC number or null","pickupDate":"YYYY-MM-DD or null","commodity":"what is being hauled"}\nIf you cannot find a value use null. Return ONLY the JSON object, nothing else.`);
       if (result && (result.loadNum || result.rate || result.origin)) {
         setParsed(result);
-        setF({ date: result.pickupDate || today(), loadNum: result.loadNum || "", origin: result.origin || "", dest: result.dest || "", miles: result.miles ? String(result.miles) : "", rate: result.rate ? String(result.rate) : "", detention: result.detention ? String(result.detention) : "0", driver: "", driverPct: "28", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Ready to Factor", brokerName: result.broker || "", brokerMC: result.brokerMC || "" });
+        setF({ date: result.pickupDate || today(), loadNum: result.loadNum || "", origin: result.origin || "", dest: result.dest || "", miles: result.miles ? String(result.miles) : "", rate: result.rate ? String(result.rate) : "", detention: result.detention ? String(result.detention) : "0", driver: "", driverCpm: "0", driverOopExpenses: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Ready to Factor", brokerName: result.broker || "", brokerMC: result.brokerMC || "" });
       } else setError("Could not read document. Make sure it's a clear PDF or photo of the rate con. Try uploading a PDF directly if using a photo.");
     } catch { setError("Error reading file. Please try again."); }
     setParsing(false);
   };
+
+  const handleDriverSelect = (name) => {
+    const profile = drivers?.find(d => d.name === name);
+    setF(p => ({ ...p, driver: name, driverCpm: profile ? String(profile.cpm) : p.driverCpm }));
+  };
+
   return (
     <ModalShell title="🤖 Upload Rate Confirmation" onClose={onClose} wide>
       {!f ? (
@@ -650,14 +703,31 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers }) => {
             <Field label="Date" type="date" value={f.date} onChange={v => setF(p => ({ ...p, date: v }))} />
             <Field label="Truck" value={f.truckId} onChange={v => setF(p => ({ ...p, truckId: v }))} options={trucks.map(t => ({ value: t.id, label: t.name }))} />
             <Field label="Trailer" value={f.trailerId || ""} onChange={v => setF(p => ({ ...p, trailerId: v }))} options={[{ value: "", label: "— None —" }, ...trailers.map(t => ({ value: t.id, label: t.name }))]} />
-            <Field label="Driver Name" value={f.driver} onChange={v => setF(p => ({ ...p, driver: v }))} placeholder="Full name" />
-            <Field label="Driver Pay %" type="number" value={f.driverPct} onChange={v => setF(p => ({ ...p, driverPct: v }))} />
             <Field label="Broker / Customer" value={f.brokerName} onChange={v => setF(p => ({ ...p, brokerName: v }))} />
             <Field label="Broker MC#" value={f.brokerMC} onChange={v => setF(p => ({ ...p, brokerMC: v }))} />
             <Field label="Origin" value={f.origin} onChange={v => setF(p => ({ ...p, origin: v }))} />
             <Field label="Destination" value={f.dest} onChange={v => setF(p => ({ ...p, dest: v }))} />
             <Field label="Miles" type="number" value={f.miles} onChange={v => setF(p => ({ ...p, miles: v }))} />
             <Field label="Rate ($)" type="number" value={f.rate} onChange={v => setF(p => ({ ...p, rate: v }))} />
+          </div>
+          {/* Driver section */}
+          <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+            <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 10 }}>👤 ASSIGN DRIVER</div>
+            <div style={fgrid}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <label style={labelStyle}>Select Driver</label>
+                <select value={f.driver || ""} onChange={e => handleDriverSelect(e.target.value)} style={inputStyle}>
+                  <option value="">— Select Driver —</option>
+                  {drivers?.map(d => <option key={d.id} value={d.name}>{d.name} (${Number(d.cpm).toFixed(2)}/mi)</option>)}
+                </select>
+                {f.driver && drivers?.find(d => d.name === f.driver) && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ CPM auto-filled from profile</div>}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <label style={labelStyle}>Driver CPM ($/mile)</label>
+                <input type="number" value={f.driverCpm || "0"} onChange={e => setF(p => ({ ...p, driverCpm: e.target.value }))} placeholder="0.55" style={inputStyle} />
+                {f.driverCpm > 0 && f.miles > 0 && <div style={{ color: "#d97706", fontSize: 11 }}>= ${(Number(f.driverCpm) * Number(f.miles)).toFixed(2)} for {Number(f.miles).toLocaleString()} miles</div>}
+              </div>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 12 }}>
             <button onClick={() => { setF(null); setParsed(null); }} style={{ flex: 1, background: "#f3f4f6", border: "1.5px solid #e5e7eb", borderRadius: 10, padding: "12px", fontWeight: 700, cursor: "pointer", fontSize: 14, color: "#374151", marginTop: 10 }}>📄 Try Different File</button>
@@ -837,7 +907,7 @@ export default function App() {
       ]);
       if (t.data) setTrucks(t.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, color: r.color, active: r.active })));
       if (tr.data) setTrailers(tr.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, type: r.type, color: r.color, active: r.active })));
-      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverCpm: r.driver_cpm || 0, driverOopExpenses: r.driver_oop_expenses || 0, truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "" })));
+      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverCpm: r.driver_cpm || 0, driverOopExpenses: r.driver_oop_expenses || 0, isTeamLoad: r.is_team_load || false, driver2: r.driver2 || "", driver2Cpm: r.driver2_cpm || 0, truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "" })));
       if (f.data) setFuelLog(f.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, gallons: r.gallons, pricePer: r.price_per, total: r.total, location: r.location, loadNum: r.load_num })));
       if (e.data) setExpenses(e.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, category: r.category, description: r.description, amount: r.amount })));
       if (m.data) setMaintenance(m.data.map(r => ({ id: r.id, entityId: r.entity_id, entityType: r.entity_type, category: r.category, description: r.description, date: r.date, milesAtService: r.miles_at_service, nextDueMiles: r.next_due_miles, nextDueDate: r.next_due_date, cost: r.cost, position: r.position, notes: r.notes })));
@@ -856,7 +926,7 @@ export default function App() {
 
   const saveLoad = async (f) => {
     if (!f.loadNum || !f.rate) return; setSaving(true);
-    const { error } = await db.from("loads").upsert({ id: editItem?.id || uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver, driver_cpm: Number(f.driverCpm || 0), driver_oop_expenses: Number(f.driverOopExpenses || 0), truck_id: f.truckId, trailer_id: f.trailerId || null, status: f.status, lumper_cost: Number(f.lumperCost || 0), lumper_paid_by: f.lumperPaidBy || "Out of Pocket", lumper_reimbursed: f.lumperReimbursed || "No", lumper_reimbursed_amount: Number(f.lumperReimbursedAmount || 0), toll: Number(f.toll || 0), factoring_status: f.factoringStatus || "Not Submitted", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
+    const { error } = await db.from("loads").upsert({ id: editItem?.id || uid(), date: f.date, load_num: f.loadNum, origin: f.origin, dest: f.dest, miles: Number(f.miles || 0), rate: Number(f.rate), detention: Number(f.detention || 0), driver: f.driver, driver_cpm: Number(f.driverCpm || 0), driver_oop_expenses: Number(f.driverOopExpenses || 0), is_team_load: f.isTeamLoad || false, driver2: f.driver2 || "", driver2_cpm: Number(f.driver2Cpm || 0), truck_id: f.truckId, trailer_id: f.trailerId || null, status: f.status, lumper_cost: Number(f.lumperCost || 0), lumper_paid_by: f.lumperPaidBy || "Out of Pocket", lumper_reimbursed: f.lumperReimbursed || "No", lumper_reimbursed_amount: Number(f.lumperReimbursedAmount || 0), toll: Number(f.toll || 0), factoring_status: f.factoringStatus || "Not Submitted", broker_name: f.brokerName || "", broker_mc: f.brokerMC || "" });
     if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Load updated ✓" : "Load added ✓"); } setSaving(false);
   };
 
@@ -943,17 +1013,34 @@ export default function App() {
   const laneMap = {};
   loads.forEach(l => { const key = `${l.origin?.split(",")[0]?.trim()} → ${l.dest?.split(",")[0]?.trim()}`; if (!laneMap[key]) laneMap[key] = { lane: key, loads: 0, miles: 0, revenue: 0, profit: 0 }; const g = Number(l.rate || 0) + Number(l.detention || 0); laneMap[key].loads++; laneMap[key].miles += Number(l.miles || 0); laneMap[key].revenue += g; laneMap[key].profit += g - g * (Number(l.driverPct || 0) / 100); });
   const lanes = Object.values(laneMap).sort((a, b) => b.revenue - a.revenue);
-  const driverNames = [...new Set(loads.map(l => l.driver).filter(Boolean))];
+  const driverNames = [...new Set([...loads.map(l => l.driver), ...loads.filter(l => l.isTeamLoad && l.driver2).map(l => l.driver2)].filter(Boolean))];
   const driverStats = driverNames.map(name => {
     const dl = loads.filter(l => l.driver === name);
+    const dl2 = loads.filter(l => l.isTeamLoad && l.driver2 === name);
     const rev = dl.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-    const pay = dl.reduce((s, l) => { return s + Number(l.driverCpm || 0) * Number(l.miles || 0) + Number(l.driverOopExpenses || 0); }, 0);
-    const mi = dl.reduce((s, l) => s + Number(l.miles || 0), 0);
+    const pay = dl.reduce((s, l) => { const mi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0); return s + Number(l.driverCpm || 0) * mi + Number(l.driverOopExpenses || 0); }, 0)
+              + dl2.reduce((s, l) => { const mi = Number(l.miles || 0) / 2; return s + Number(l.driver2Cpm || 0) * mi; }, 0);
+    const mi = dl.reduce((s, l) => s + (l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0)), 0)
+             + dl2.reduce((s, l) => s + Number(l.miles || 0) / 2, 0);
     const det = dl.reduce((s, l) => s + Number(l.detention || 0), 0);
     const profile = driverProfiles.find(d => d.name === name);
-    return { name, loads: dl.length, rev, pay, mi, det, cpm: profile?.cpm || dl[0]?.driverCpm || 0 };
+    const allLoads = [...dl, ...dl2.map(l => ({ ...l, driverCpm: l.driver2Cpm, driver: name }))];
+    return { name, loads: allLoads.length, rev, pay, mi, det, cpm: profile?.cpm || dl[0]?.driverCpm || 0, allLoads };
   });
-  const getPaystubLoads = (driver) => { const now = new Date(); return loads.filter(l => { if (l.driver !== driver) return false; const d = new Date(l.date); if (paystubPeriod === "weekly") return (now - d) / 86400000 <= 7; if (paystubPeriod === "biweekly") return (now - d) / 86400000 <= 14; if (paystubPeriod === "monthly") return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); return true; }); };
+  const getPaystubLoads = (driver) => {
+    const now = new Date();
+    const inPeriod = (d) => {
+      const date = new Date(d);
+      if (paystubPeriod === "weekly") return (now - date) / 86400000 <= 7;
+      if (paystubPeriod === "biweekly") return (now - date) / 86400000 <= 14;
+      if (paystubPeriod === "monthly") return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+      return true;
+    };
+    const primary = loads.filter(l => l.driver === driver && inPeriod(l.date));
+    const asDriver2 = loads.filter(l => l.isTeamLoad && l.driver2 === driver && inPeriod(l.date))
+      .map(l => ({ ...l, driverCpm: l.driver2Cpm, _isDriver2: true }));
+    return [...primary, ...asDriver2];
+  };
 
   // ─── STYLES ────────────────────────────────────────────────────────────────
   const S = {
@@ -1141,19 +1228,21 @@ export default function App() {
         {filtLoads.length === 0 && <tr><td colSpan={13} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No loads yet.</td></tr>}
         {filtLoads.map(l => {
           const g = Number(l.rate || 0) + Number(l.detention || 0);
-          const dp = g * (Number(l.driverPct || 0) / 100);
+          const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+          const dp = Number(l.driverCpm || 0) * splitMi + Number(l.driver2Cpm || 0) * (l.isTeamLoad ? splitMi : 0);
           const lumperNet = l.lumperPaidBy === "Out of Pocket" && l.lumperReimbursed !== "Yes" ? Number(l.lumperCost || 0) : 0;
           const pr = g - dp - lumperNet - Number(l.toll || 0);
           const truck = truckById(l.truckId);
           const trailer = trailerById(l.trailerId);
           return (<tr key={l.id} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
-            <TD color="#d97706" bold>{l.loadNum}</TD><TD>{l.date}</TD>
+            <TD color="#d97706" bold>{l.loadNum}{l.isTeamLoad && <span style={{ background: "#7c3aed20", color: "#7c3aed", border: "1px solid #7c3aed44", borderRadius: 6, padding: "1px 5px", fontSize: 9, fontWeight: 700, marginLeft: 4 }}>TEAM</span>}</TD>
+            <TD>{l.date}</TD>
             <TD>{truck && <Badge label={truck.name} color={truck.color} />}</TD>
             <TD>{trailer && <Badge label={trailer.name} color={trailer.color || "#16a34a"} />}</TD>
             <TD>{l.origin} → {l.dest}</TD>
             <TD mono>{fmtMi(l.miles)}</TD><TD mono>{fmt$(l.rate)}</TD>
             <TD mono color={lumperNet > 0 ? "#dc2626" : "#9ca3af"}>{lumperNet > 0 ? fmt$(lumperNet) : "—"}</TD>
-            <TD>{l.driver}</TD>
+            <TD><div>{l.driver}</div>{l.isTeamLoad && l.driver2 && <div style={{ color: "#7c3aed", fontSize: 11 }}>+ {l.driver2}</div>}</TD>
             <TD mono color={pr >= 0 ? "#16a34a" : "#dc2626"} bold>{fmt$(pr)}</TD>
             <TD><FactoringBadge s={l.factoringStatus || "Not Submitted"} /></TD>
             <TD><StatusBadge s={l.status} /></TD>
@@ -1434,7 +1523,7 @@ export default function App() {
       {modal === "maintenance" && <MaintenanceForm onClose={closeModal} onSave={saveMaintenance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
       {modal === "insurance" && <InsuranceForm onClose={closeModal} onSave={saveInsurance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
       {modal === "driver" && <DriverProfileForm onClose={closeModal} onSave={saveDriver} saving={saving} editItem={editItem} />}
-      {modal === "rateCon" && <RateConModal onClose={closeModal} onLoad={saveLoadDirect} trucks={trucks} trailers={trailers} />}
+      {modal === "rateCon" && <RateConModal onClose={closeModal} onLoad={saveLoadDirect} trucks={trucks} trailers={trailers} drivers={driverProfiles} />}
       {modal === "mudflap" && <MudflapModal onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
       {modal === "csvImport" && <CsvImportForm onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
       {modal === "driverLoads" && <DriverLoadsModal />}
