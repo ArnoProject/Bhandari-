@@ -110,15 +110,206 @@ const parseTCSCsv = (text) => {
 };
 
 const printPaystub = (driver, driverLoads, period) => {
-  const totalGross = driverLoads.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
-  const totalPay = driverLoads.reduce((s, l) => {
-    const mi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
-    return s + Number(l.driverCpm || 0) * mi + Number(l.driverOopExpenses || 0);
-  }, 0);
-  const totalMiles = driverLoads.reduce((s, l) => s + (l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0)), 0);
-  const totalDetention = driverLoads.reduce((s, l) => s + Number(l.detention || 0), 0);
+  const isTeamDriver = driverLoads.some(l => l.isTeamLoad);
+  const cpm = driverLoads[0]?.driverCpm || 0;
+  const now = new Date();
+  const issueDate = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  // Calculate totals including deadhead
+  const rows = driverLoads.map((l, i) => {
+    const loadedMi = Number(l.miles || 0);
+    const dhMi = Number(l.deadheadMiles || 0);
+    const teamMi = loadedMi + dhMi;
+    const soloMi = l.isTeamLoad ? teamMi / 2 : teamMi;
+    const pay = Number(l.driverCpm || 0) * soloMi + Number(l.driverOopExpenses || 0);
+    const dhDesc = dhMi > 0 && l.deadheadOrigin ? `DH: ${l.deadheadOrigin}→${(l.origin||'').split(',')[0]} (${fmtMi(dhMi)}) | ` : '';
+    const desc = `${dhDesc}Loaded: ${(l.origin||'').split(',')[0]} → ${(l.dest||'').split(',')[0]}`;
+    return { num: i+1, loadNum: l.loadNum, desc, puDate: l.date, delDate: l.date, dhMi, loadedMi, teamMi, soloMi, pay, cpm: l.driverCpm || 0, origin: l.origin, dest: l.dest };
+  });
+
+  const totalDH = rows.reduce((s, r) => s + r.dhMi, 0);
+  const totalLoaded = rows.reduce((s, r) => s + r.loadedMi, 0);
+  const totalTeam = rows.reduce((s, r) => s + r.teamMi, 0);
+  const totalSolo = rows.reduce((s, r) => s + r.soloMi, 0);
+  const totalPay = rows.reduce((s, r) => s + r.pay, 0);
+
   const w = window.open("", "_blank");
-  w.document.write(`<html><head><title>Paystub - ${driver}</title><style>body{font-family:'Courier New',monospace;max-width:700px;margin:40px auto;color:#111}.header{text-align:center;border-bottom:3px solid #000;padding-bottom:20px;margin-bottom:20px}.row{display:flex;justify-content:space-between;padding:5px 0;font-size:14px}.row.total{font-weight:900;font-size:17px;border-top:2px solid #000;margin-top:10px;padding-top:10px}.load-row{display:grid;grid-template-columns:1fr 2fr 1fr 1fr 1fr;gap:8px;padding:6px 0;border-bottom:1px solid #eee;font-size:12px}.section-title{font-weight:900;font-size:12px;text-transform:uppercase;border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:10px;margin-top:20px}</style></head><body><div class="header"><div style="font-size:24px;font-weight:900">⛟ BHANDARI LOGISTICS LLC</div><div>DRIVER PAY STATEMENT</div></div><div class="row"><span>Driver:</span><span><b>${driver}</b></span></div><div class="row"><span>Period:</span><span>${period}</span></div><div class="row"><span>Loads:</span><span>${driverLoads.length}</span></div><div class="row"><span>Miles:</span><span>${fmtMi(totalMiles)}</span></div><div class="section-title">Load Detail</div>${driverLoads.map(l => { const g = Number(l.rate || 0) + Number(l.detention || 0); const pay = g * (Number(l.driverPct || 0) / 100); return `<div class="load-row"><span>${l.loadNum}</span><span>${(l.origin||'').split(',')[0]} → ${(l.dest||'').split(',')[0]}</span><span>${fmtMi(l.miles)}mi</span><span>${fmt$(g)}</span><span>${fmt$(pay)}</span></div>`; }).join('')}<div class="section-title">Summary</div><div class="row"><span>Gross:</span><span>${fmt$(totalGross)}</span></div><div class="row"><span>Detention:</span><span>${fmt$(totalDetention)}</span></div><div class="row total"><span>TOTAL PAY:</span><span>${fmt$(totalPay)}</span></div><script>window.onload=()=>window.print();</script></body></html>`);
+  w.document.write(`<!DOCTYPE html><html><head><title>Paystub - ${driver}</title><style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Arial',sans-serif;max-width:800px;margin:30px auto;color:#111;font-size:13px;padding:20px}
+    .no-print{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+    .no-print button{background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-weight:700;cursor:pointer;font-size:13px}
+    h1{font-size:22px;font-weight:900;color:#111;letter-spacing:1px}
+    .sub{color:#6b7280;font-size:12px;letter-spacing:2px;margin-top:2px}
+    .header{border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-start}
+    .info-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:20px;background:#f9fafb;border-radius:8px;padding:16px}
+    .info-box label{display:block;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-bottom:4px}
+    .info-box span{font-size:14px;font-weight:700;color:#111}
+    .formula{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 14px;margin-bottom:18px;font-size:11px;color:#92400e;font-weight:600}
+    .section-title{font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#6b7280;border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:0}
+    table{width:100%;border-collapse:collapse;margin-bottom:20px}
+    th{background:#1e293b;color:#fff;padding:9px 10px;text-align:left;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
+    th.r,td.r{text-align:right}
+    td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;vertical-align:top}
+    tr:nth-child(even) td{background:#f9fafb}
+    .total-row td{background:#1e293b!important;color:#fff;font-weight:700;font-size:13px;padding:10px}
+    .summary-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px}
+    .summary-box{border:1.5px solid #e5e7eb;border-radius:8px;padding:14px;text-align:center}
+    .summary-box label{display:block;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6b7280;margin-bottom:6px}
+    .summary-box .val{font-size:20px;font-weight:900;color:#111;font-family:monospace}
+    .summary-box .sub2{font-size:10px;color:#9ca3af;margin-top:4px}
+    .pay-box{background:#d97706;color:#fff;border-radius:10px;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+    .pay-box .label{font-size:14px;font-weight:700;letter-spacing:1px}
+    .pay-box .amount{font-size:32px;font-weight:900;font-family:monospace}
+    .calc-note{background:#f9fafb;border-radius:8px;padding:14px;font-size:11px;color:#374151;line-height:1.8;margin-bottom:20px}
+    .calc-note strong{color:#111}
+    .footer{border-top:1px solid #e5e7eb;padding-top:14px;text-align:center;color:#9ca3af;font-size:10px;margin-top:20px}
+    @media print{.no-print{display:none}body{margin:0;padding:15px}}
+  </style></head><body>
+    <div class="no-print">
+      <span style="color:#16a34a;font-weight:700">✅ ${driver}'s Paystub — Ready to print or save as PDF</span>
+      <button onclick="window.print()">🖨️ Print / Save PDF</button>
+    </div>
+
+    <div class="header">
+      <div>
+        <h1>⛟ BHANDARI LOGISTICS LLC</h1>
+        <div class="sub">DRIVER PAY STATEMENT — ${period.toUpperCase()}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:#6b7280">ISSUE DATE</div>
+        <div style="font-weight:700">${issueDate}</div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-box"><label>Driver Name</label><span>${driver}</span></div>
+      <div class="info-box"><label>Driver Type</label><span>${isTeamDriver ? "Team Driver" : "Solo Driver"}</span></div>
+      <div class="info-box"><label>Pay Rate</label><span>$${fmtN(cpm, 2)} / Mile</span></div>
+      <div class="info-box"><label>Total Loads</label><span>${driverLoads.length} loads</span></div>
+    </div>
+
+    ${isTeamDriver ? `<div class="formula">TEAM LOAD: Deadhead Miles + Loaded Miles = Team Miles | Team Miles ÷ 2 = Solo Miles | Solo Miles × $${fmtN(cpm, 2)} = Pay</div>` : `<div class="formula">Deadhead Miles + Loaded Miles = Total Miles | Total Miles × $${fmtN(cpm, 2)} = Pay</div>`}
+
+    <div class="section-title">LOAD DETAILS</div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Load #</th>
+          <th>Pick Up</th>
+          <th>Delivery</th>
+          <th class="r">DH Mi</th>
+          <th class="r">Del Mi</th>
+          <th class="r">${isTeamDriver ? "Team Mi" : "Total Mi"}</th>
+          ${isTeamDriver ? "<th class='r'>Solo Mi</th>" : ""}
+          <th class="r">Rate</th>
+          <th class="r">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>${r.num}</td>
+            <td style="font-weight:700;color:#d97706">${r.loadNum || "—"}</td>
+            <td>${(r.origin||"").split(",")[0]}</td>
+            <td>${(r.dest||"").split(",")[0]}</td>
+            <td class="r">${r.dhMi > 0 ? fmtMi(r.dhMi) : "—"}</td>
+            <td class="r">${fmtMi(r.loadedMi)}</td>
+            <td class="r" style="font-weight:700">${fmtMi(r.teamMi)}</td>
+            ${isTeamDriver ? `<td class="r" style="font-weight:700;color:#2563eb">${fmtMi(r.soloMi)}</td>` : ""}
+            <td class="r">$${fmtN(r.cpm, 2)}</td>
+            <td class="r" style="font-weight:700;color:#d97706">$${fmtN(r.pay, 2)}</td>
+          </tr>
+        `).join("")}
+        <tr class="total-row">
+          <td colspan="4">TOTAL</td>
+          <td class="r">${totalDH > 0 ? fmtMi(totalDH) : "—"}</td>
+          <td class="r">${fmtMi(totalLoaded)}</td>
+          <td class="r">${fmtMi(totalTeam)}</td>
+          ${isTeamDriver ? `<td class="r">${fmtMi(totalSolo)}</td>` : ""}
+          <td class="r">—</td>
+          <td class="r" style="color:#fbbf24;font-size:15px">$${fmtN(totalPay, 2)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="section-title" style="margin-bottom:14px">PAY SUMMARY</div>
+    <div class="summary-grid">
+      <div class="summary-box">
+        <label>${isTeamDriver ? "Total Team Miles" : "Total Miles"}</label>
+        <div class="val">${fmtMi(totalTeam)}</div>
+        <div class="sub2">${isTeamDriver ? "All miles both drivers" : "Loaded + deadhead"}</div>
+      </div>
+      ${isTeamDriver ? `
+      <div class="summary-box">
+        <label>${driver}'s Solo Miles</label>
+        <div class="val" style="color:#2563eb">${fmtMi(totalSolo)}</div>
+        <div class="sub2">Team miles (${fmtMi(totalTeam)}) ÷ 2</div>
+      </div>` : ""}
+      <div class="summary-box">
+        <label>Pay Rate</label>
+        <div class="val">$${fmtN(cpm, 2)}</div>
+        <div class="sub2">Per ${isTeamDriver ? "solo" : ""} mile</div>
+      </div>
+      <div class="summary-box" style="border-color:#d97706">
+        <label>Total Pay</label>
+        <div class="val" style="color:#d97706">$${fmtN(totalPay, 2)}</div>
+        <div class="sub2">${fmtMi(totalSolo)} mi × $${fmtN(cpm, 2)}</div>
+      </div>
+    </div>
+
+    <div class="pay-box">
+      <div class="label">💰 TOTAL PAY THIS PERIOD</div>
+      <div class="amount">$${fmtN(totalPay, 2)}</div>
+    </div>
+
+    <div class="section-title" style="margin-bottom:14px">EARNINGS BREAKDOWN</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Load Description</th>
+          <th class="r">${isTeamDriver ? "Team Mi" : "Total Mi"}</th>
+          ${isTeamDriver ? "<th class='r'>Solo Mi</th>" : ""}
+          <th class="r">Rate</th>
+          <th class="r">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>Load ${r.num}${r.loadNum ? ` (${r.loadNum})` : ""} — ${r.desc}</td>
+            <td class="r">${fmtMi(r.teamMi)}</td>
+            ${isTeamDriver ? `<td class="r">${fmtMi(r.soloMi)}</td>` : ""}
+            <td class="r">$${fmtN(r.cpm, 2)}</td>
+            <td class="r" style="font-weight:700">$${fmtN(r.pay, 2)}</td>
+          </tr>
+        `).join("")}
+        <tr class="total-row">
+          <td><strong>TOTAL</strong></td>
+          <td class="r">${fmtMi(totalTeam)}</td>
+          ${isTeamDriver ? `<td class="r">${fmtMi(totalSolo)}</td>` : ""}
+          <td class="r">—</td>
+          <td class="r" style="color:#fbbf24">$${fmtN(totalPay, 2)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="calc-note">
+      <strong>HOW YOUR PAY IS CALCULATED:</strong><br>
+      ${isTeamDriver
+        ? `* Deadhead (empty) + Loaded miles = Team Miles. Team Miles ÷ 2 = Your Solo Miles. Solo Miles × $${fmtN(cpm, 2)} = Your Pay.<br>
+           * Both deadhead and loaded miles count toward your pay. Questions? Contact Bhandari Logistics LLC.`
+        : `* Deadhead (empty) + Loaded miles = Total Miles. Total Miles × $${fmtN(cpm, 2)} = Your Pay.<br>
+           * Both deadhead and loaded miles count toward your pay. Questions? Contact Bhandari Logistics LLC.`
+      }
+    </div>
+
+    <div class="footer">
+      Bhandari Logistics LLC | Pay Period: ${period} | Driver: ${driver} | Generated: ${issueDate} &nbsp;|&nbsp; CONFIDENTIAL — FOR DRIVER USE ONLY
+    </div>
+    <script>window.onload=()=>window.print();</script>
+  </body></html>`);
   w.document.close();
 };
 
