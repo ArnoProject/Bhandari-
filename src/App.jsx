@@ -1977,7 +1977,8 @@ export default function App() {
     { id: "reports", label: "Reports", icon: "📈" },
   ];
 
-  const allCosts = loads.reduce((s, l) => { const g = Number(l.rate || 0) + Number(l.detention || 0); return s + g * (Number(l.driverPct || 0) / 100); }, 0) + fuelLog.reduce((s, f) => s + Number(f.total || 0), 0) + expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const allRev = loads.reduce((s, l) => s + Number(l.rate || 0) + Number(l.detention || 0), 0);
+  const allCosts = loads.reduce((s, l) => { const splitMi = l.isTeamLoad ? Number(l.miles||0)/2 : Number(l.miles||0); const splitDH = l.isTeamLoad ? Number(l.deadheadMiles||0)/2 : Number(l.deadheadMiles||0); return s + Number(l.driverCpm||0)*(splitMi+splitDH) + Number(l.driverOopExpenses||0); }, 0) + fuelLog.reduce((s, f) => s + Number(f.total || 0), 0) + expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
   const allProfit = allRev - allCosts;
 
   return (
