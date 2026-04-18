@@ -312,7 +312,17 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
   // Auto-fill CPM when driver selected from profile
   const handleDriverSelect = (name) => {
     const profile = drivers.find(d => d.name === name);
-    setF(p => ({ ...p, driver: name, driverCpm: profile ? String(profile.cpm) : p.driverCpm }));
+    const isTeam = profile?.isTeamDriver || false;
+    const partner = profile?.teamPartner || "";
+    const partnerProfile = partner ? drivers.find(d => d.name === partner) : null;
+    setF(p => ({
+      ...p,
+      driver: name,
+      driverCpm: profile ? String(profile.cpm) : p.driverCpm,
+      isTeamLoad: isTeam ? true : p.isTeamLoad,
+      driver2: isTeam && partner ? partner : p.driver2,
+      driver2Cpm: isTeam && partnerProfile ? String(partnerProfile.cpm) : p.driver2Cpm,
+    }));
   };
   const handleDriver2Select = (name) => {
     const profile = drivers.find(d => d.name === name);
@@ -461,8 +471,8 @@ const LoadForm = ({ onClose, onSave, saving, trucks, trailers, drivers, editItem
 };
 
 // ─── DRIVER PROFILE FORM ──────────────────────────────────────────────────────
-const DriverProfileForm = ({ onClose, onSave, saving, editItem }) => {
-  const [f, setF] = useState(editItem || { name: "", email: "", phone: "", cpm: "", notes: "", active: true });
+const DriverProfileForm = ({ onClose, onSave, saving, editItem, allDrivers }) => {
+  const [f, setF] = useState(editItem || { name: "", email: "", phone: "", cpm: "", notes: "", active: true, is_team_driver: false, team_partner: "" });
   return (
     <ModalShell title={editItem ? "✏️ Edit Driver" : "👤 Add Driver"} onClose={onClose}>
       <div style={fgrid}>
@@ -470,13 +480,33 @@ const DriverProfileForm = ({ onClose, onSave, saving, editItem }) => {
         <Field label="Phone Number" value={f.phone || ""} onChange={v => setF(p => ({ ...p, phone: v }))} placeholder="555-000-0000" />
         <Field label="Email" value={f.email || ""} onChange={v => setF(p => ({ ...p, email: v }))} placeholder="driver@email.com" />
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <label style={labelStyle}>Pay Rate (¢ per mile)</label>
+          <label style={labelStyle}>Pay Rate ($ per mile CPM)</label>
           <input type="number" value={f.cpm || ""} onChange={e => setF(p => ({ ...p, cpm: e.target.value }))} placeholder="e.g. 0.55" step="0.01" style={inputStyle} />
           {f.cpm > 0 && <div style={{ color: "#16a34a", fontSize: 11 }}>= {fmt$(Number(f.cpm) * 500)} per 500 miles · {fmt$(Number(f.cpm) * 1000)} per 1000 miles</div>}
         </div>
         <Field label="Status" value={f.active ? "active" : "inactive"} onChange={v => setF(p => ({ ...p, active: v === "active" }))} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }]} />
         <Field label="Notes" value={f.notes || ""} onChange={v => setF(p => ({ ...p, notes: v }))} placeholder="Any notes..." />
       </div>
+
+      {/* Team Driver Section */}
+      <div style={{ background: "#f5f3ff", border: "1.5px solid #ddd6fe", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <input type="checkbox" id="isTeam" checked={f.is_team_driver || false} onChange={e => setF(p => ({ ...p, is_team_driver: e.target.checked, team_partner: e.target.checked ? p.team_partner : "" }))} style={{ width: 16, height: 16, cursor: "pointer" }} />
+          <label htmlFor="isTeam" style={{ color: "#7c3aed", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>🚛🚛 This is a Team Driver</label>
+        </div>
+        {f.is_team_driver && (
+          <div>
+            <label style={labelStyle}>Team Partner</label>
+            <select value={f.team_partner || ""} onChange={e => setF(p => ({ ...p, team_partner: e.target.value }))} style={inputStyle}>
+              <option value="">— Select Team Partner —</option>
+              {allDrivers?.filter(d => d.name !== f.name).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+            </select>
+            {f.team_partner && <div style={{ color: "#7c3aed", fontSize: 11, marginTop: 6 }}>✅ {f.name || "This driver"} will be automatically paired with {f.team_partner} on team loads</div>}
+          </div>
+        )}
+        {!f.is_team_driver && <div style={{ color: "#9ca3af", fontSize: 12 }}>Check this if driver runs team loads with a partner</div>}
+      </div>
+
       <SaveBtn onClick={() => onSave(f)} label={editItem ? "💾 Update Driver" : "✅ Add Driver"} loading={saving} />
     </ModalShell>
   );
@@ -912,7 +942,7 @@ export default function App() {
       if (e.data) setExpenses(e.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, category: r.category, description: r.description, amount: r.amount })));
       if (m.data) setMaintenance(m.data.map(r => ({ id: r.id, entityId: r.entity_id, entityType: r.entity_type, category: r.category, description: r.description, date: r.date, milesAtService: r.miles_at_service, nextDueMiles: r.next_due_miles, nextDueDate: r.next_due_date, cost: r.cost, position: r.position, notes: r.notes })));
       if (ins.data) setInsurance(ins.data.map(r => ({ id: r.id, provider: r.provider, policyNumber: r.policy_number, coverageType: r.coverage_type, premiumAmount: r.premium_amount, paymentFrequency: r.payment_frequency, startDate: r.start_date, endDate: r.end_date, entityId: r.entity_id, notes: r.notes })));
-      if (dr.data) setDriverProfiles(dr.data.map(r => ({ id: r.id, name: r.name, email: r.email, phone: r.phone, cpm: r.cpm, active: r.active, notes: r.notes })));
+      if (dr.data) setDriverProfiles(dr.data.map(r => ({ id: r.id, name: r.name, email: r.email, phone: r.phone, cpm: r.cpm, active: r.active, notes: r.notes, isTeamDriver: r.is_team_driver || false, teamPartner: r.team_partner || "" })));
     } catch { showToast("Error loading data", "error"); }
     setLoading(false);
   };
@@ -967,7 +997,7 @@ export default function App() {
     setSaving(false);
   };
   const saveInsurance = async (f) => { if (!f.provider || !f.premium_amount) return; setSaving(true); const { error } = await db.from("insurance").upsert({ id: editItem?.id || uid(), provider: f.provider, policy_number: f.policy_number || "", coverage_type: f.coverage_type, premium_amount: Number(f.premium_amount), payment_frequency: f.payment_frequency, start_date: f.start_date, end_date: f.end_date || null, entity_id: f.entity_id, entity_type: f.entity_type || "fleet", notes: f.notes || "" }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast("Policy saved ✓"); } setSaving(false); };
-  const saveDriver = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("drivers").upsert({ id: editItem?.id || uid(), name: f.name, email: f.email || "", phone: f.phone || "", cpm: Number(f.cpm || 0), active: f.active !== false, notes: f.notes || "" }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Driver updated ✓" : "Driver added ✓"); } setSaving(false); };
+  const saveDriver = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("drivers").upsert({ id: editItem?.id || uid(), name: f.name, email: f.email || "", phone: f.phone || "", cpm: Number(f.cpm || 0), active: f.active !== false, notes: f.notes || "", is_team_driver: f.is_team_driver || false, team_partner: f.team_partner || "" }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Driver updated ✓" : "Driver added ✓"); } setSaving(false); };
   const delDriver = async (id) => { if (!confirm("Delete driver?")) return; await db.from("drivers").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
   const importFuel = async (rows) => { setSaving(true); const { error } = await db.from("fuel").upsert(rows); if (error) showToast("Import failed", "error"); else { await fetchAll(); showToast(`${rows.length} transactions imported ✓`); } setSaving(false); };
   const delLoad = async (id) => { if (!confirm("Delete?")) return; await db.from("loads").delete().eq("id", id); await fetchAll(); showToast("Deleted", "warn"); };
@@ -1388,7 +1418,7 @@ export default function App() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg,#d97706,#b45309)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 900, color: "#fff" }}>{d.name.split(" ").map(n => n[0]).join("").slice(0, 2)}</div>
-                      <div><div style={{ color: "#111827", fontWeight: 800, fontSize: 15 }}>{d.name}</div><div style={{ color: "#6b7280", fontSize: 12 }}>💰 ${fmtN(d.cpm, 2)}/mile CPM</div></div>
+                      <div><div style={{ color: "#111827", fontWeight: 800, fontSize: 15 }}>{d.name}{d.isTeamDriver && <span style={{ background: "#7c3aed20", color: "#7c3aed", border: "1px solid #7c3aed44", borderRadius: 6, padding: "1px 6px", fontSize: 10, fontWeight: 700, marginLeft: 6 }}>🚛🚛 TEAM</span>}</div><div style={{ color: "#6b7280", fontSize: 12 }}>💰 ${fmtN(d.cpm, 2)}/mile CPM</div>{d.isTeamDriver && d.teamPartner && <div style={{ color: "#7c3aed", fontSize: 11 }}>👥 Partner: {d.teamPartner}</div>}</div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button style={S.btnEdt} onClick={() => { setEditItem(d); setModal("driver"); }}>Edit</button>
@@ -1535,7 +1565,7 @@ export default function App() {
       {modal === "repairReceipt" && <RepairReceiptModal onClose={closeModal} onSave={saveExp} saving={saving} trucks={trucks} />}
       {modal === "maintenance" && <MaintenanceForm onClose={closeModal} onSave={saveMaintenance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
       {modal === "insurance" && <InsuranceForm onClose={closeModal} onSave={saveInsurance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
-      {modal === "driver" && <DriverProfileForm onClose={closeModal} onSave={saveDriver} saving={saving} editItem={editItem} />}
+      {modal === "driver" && <DriverProfileForm onClose={closeModal} onSave={saveDriver} saving={saving} editItem={editItem} allDrivers={driverProfiles} />}
       {modal === "rateCon" && <RateConModal onClose={closeModal} onLoad={saveLoadDirect} trucks={trucks} trailers={trailers} drivers={driverProfiles} />}
       {modal === "mudflap" && <MudflapModal onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
       {modal === "csvImport" && <CsvImportForm onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
