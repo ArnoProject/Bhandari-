@@ -678,19 +678,25 @@ const FactoringDetailModal = ({ load, truck, trailer, onClose, onUpdateStatus })
   );
 };
 
-const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers }) => {
+const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSaveDraft }) => {
   const [parsing, setParsing] = useState(false);
-  const [f, setF] = useState(null);
-  const [parsed, setParsed] = useState(null);
+  const [f, setF] = useState(draft?.f || null);
+  const [parsed, setParsed] = useState(draft?.parsed || null);
   const [error, setError] = useState(null);
   const fileRef = useRef();
+
+  // Save draft whenever f changes
+  useEffect(() => {
+    if (f) onSaveDraft({ f, parsed });
+  }, [f]);
+
   const handleFile = async (e) => {
     const file = e.target.files[0]; if (!file) return;
     setParsing(true); setError(null);
     try {
       const base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = ev => res(ev.target.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
       const mediaType = file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-      const result = await parseWithAI(base64, mediaType, `You are reading a trucking rate confirmation document. Extract all load information you can find. Return ONLY valid JSON with no other text:\n{"loadNum":"load or reference number","origin":"pickup city, ST","dest":"delivery city, ST","miles":number or null,"rate":total rate as number,"detention":number or null,"broker":"broker or shipper company name","brokerMC":"MC number or null","pickupDate":"YYYY-MM-DD or null","commodity":"what is being hauled"}\nIf you cannot find a value use null. Return ONLY the JSON object, nothing else.`);
+      const result = await parseWithAI(base64, mediaType, `You are reading a trucking rate confirmation document. Extract load information. Return ONLY valid JSON:\n{"loadNum":"load or reference number","origin":"FIRST pickup city, ST only","dest":"FINAL delivery city, ST only","miles":ONLY if clearly stated as total miles in the document otherwise null,"rate":total rate as a single number,"detention":detention amount or null,"broker":"broker or shipper company name","brokerMC":"The BROKER or SHIPPER MC number only — NOT the carrier or truck company MC. If you cannot clearly identify the broker MC number leave it null","pickupDate":"YYYY-MM-DD or null","commodity":"what is being hauled"}\nIMPORTANT: For miles - only use the number if the document explicitly states total miles. Do NOT calculate or add up stop distances. If unsure leave as null. For multi-stop loads use first pickup as origin and last delivery as dest. For brokerMC - only include if clearly labeled as broker MC or shipper MC, never use the carrier/truck company MC. Return ONLY the JSON.`);
       if (result && (result.loadNum || result.rate || result.origin)) {
         setParsed(result);
         setF({ date: result.pickupDate || today(), loadNum: result.loadNum || "", origin: result.origin || "", dest: result.dest || "", miles: result.miles ? String(result.miles) : "", rate: result.rate ? String(result.rate) : "", detention: result.detention ? String(result.detention) : "0", driver: "", driverCpm: "0", driverOopExpenses: "0", truckId: trucks[0]?.id || "", trailerId: "", status: "Pending", lumperCost: "0", lumperPaidBy: "Out of Pocket", lumperReimbursed: "No", lumperReimbursedAmount: "0", toll: "0", factoringStatus: "Ready to Factor", brokerName: result.broker || "", brokerMC: result.brokerMC || "" });
@@ -910,7 +916,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [paystubDriver, setPaystubDriver] = useState("");
   const [paystubPeriod, setPaystubPeriod] = useState("weekly");
-  const [factoringLoad, setFactoringLoad] = useState(null);
+  const [rateConDraft, setRateConDraft] = useState(null);
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1264,7 +1270,11 @@ export default function App() {
 
   const Loads = () => (
     <>
-      <div style={S.ph}><div><h1 style={S.h1}>Load Management</h1></div><div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><button onClick={() => setModal("rateCon")} style={{ background: "#eff6ff", color: "#2563eb", border: "1.5px solid #2563eb", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>🤖 Upload Rate Con</button><PrimaryBtn onClick={() => { setEditItem(null); setModal("load"); }}>+ Add Load</PrimaryBtn></div></div>
+      <div style={S.ph}><div><h1 style={S.h1}>Load Management</h1></div><div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {rateConDraft && <button onClick={() => setModal("rateCon")} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Draft Load</button>}
+        <button onClick={() => { setRateConDraft(null); setModal("rateCon"); }} style={{ background: "#eff6ff", color: "#2563eb", border: "1.5px solid #2563eb", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>🤖 Upload Rate Con</button>
+        <PrimaryBtn onClick={() => { setEditItem(null); setModal("load"); }}>+ Add Load</PrimaryBtn>
+      </div></div>
       <TruckBar />
       <div style={S.grid(5)}><StatCard label="In Transit" value={filtLoads.filter(l => l.status === "In Transit").length} accent="#d97706" icon="🚛" /><StatCard label="Pending" value={filtLoads.filter(l => l.status === "Pending").length} accent="#6b7280" icon="⏳" /><StatCard label="Delivered" value={filtLoads.filter(l => l.status === "Delivered").length} accent="#16a34a" icon="✅" /><StatCard label="Ready to Factor" value={filtLoads.filter(l => l.factoringStatus === "Ready to Factor").length} accent="#2563eb" icon="💼" /><StatCard label="Total Rev" value={fmt$(totalRev)} accent="#16a34a" icon="💰" /></div>
       <div style={S.tableWrap}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Load#", "Date", "Truck", "Trailer", "Origin → Dest", "Miles", "Rate", "Lumper", "Driver", "Profit", "Factoring", "Status", ""].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>
@@ -1569,7 +1579,7 @@ export default function App() {
       {modal === "maintenance" && <MaintenanceForm onClose={closeModal} onSave={saveMaintenance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
       {modal === "insurance" && <InsuranceForm onClose={closeModal} onSave={saveInsurance} saving={saving} trucks={trucks} trailers={trailers} editItem={editItem} />}
       {modal === "driver" && <DriverProfileForm onClose={closeModal} onSave={saveDriver} saving={saving} editItem={editItem} allDrivers={driverProfiles} />}
-      {modal === "rateCon" && <RateConModal onClose={closeModal} onLoad={saveLoadDirect} trucks={trucks} trailers={trailers} drivers={driverProfiles} />}
+      {modal === "rateCon" && <RateConModal onClose={closeModal} onLoad={(f) => { saveLoadDirect(f); setRateConDraft(null); }} trucks={trucks} trailers={trailers} drivers={driverProfiles} draft={rateConDraft} onSaveDraft={setRateConDraft} />}
       {modal === "mudflap" && <MudflapModal onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
       {modal === "csvImport" && <CsvImportForm onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
       {modal === "driverLoads" && <DriverLoadsModal />}
