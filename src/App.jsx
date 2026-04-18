@@ -1345,12 +1345,7 @@ export default function App() {
 
   useEffect(() => { if (session) fetchAll(); }, [session]);
   const closeModal = () => { setModal(null); setEditItem(null); };
-  const switchTab = (newTab) => {
-    // When switching tabs, keep modal open in background by just changing tab
-    // Modal stays mounted, form data preserved
-    setTab(newTab);
-  };
-  const closeModal = () => { setModal(null); setEditItem(null); };
+  const switchTab = (newTab) => { setTab(newTab); };
   const saveDirectClient = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("direct_clients").upsert({ id: editItem?.id || uid(), name: f.name, contact_name: f.contactName || "", email: f.email || "", phone: f.phone || "", address: f.address || "", payment_terms: f.paymentTerms || "Net 2", notes: f.notes || "", active: f.active !== false }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Client updated ✓" : "Client added ✓"); } setSaving(false); };
   const delDirectClient = async (id) => { if (!confirm("Delete this client?")) return; await db.from("direct_clients").delete().eq("id", id); await fetchAll(); showToast("Client deleted"); };
 
