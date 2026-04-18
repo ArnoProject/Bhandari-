@@ -1345,7 +1345,7 @@ export default function App() {
 
   useEffect(() => { if (session) fetchAll(); }, [session]);
   const closeModal = () => { setModal(null); setEditItem(null); };
- 
+  const switchTab = (newTab) => { setTab(newTab); };
   const saveDirectClient = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("direct_clients").upsert({ id: editItem?.id || uid(), name: f.name, contact_name: f.contactName || "", email: f.email || "", phone: f.phone || "", address: f.address || "", payment_terms: f.paymentTerms || "Net 2", notes: f.notes || "", active: f.active !== false }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Client updated ✓" : "Client added ✓"); } setSaving(false); };
   const delDirectClient = async (id) => { if (!confirm("Delete this client?")) return; await db.from("direct_clients").delete().eq("id", id); await fetchAll(); showToast("Client deleted"); };
 
@@ -2158,7 +2158,300 @@ export default function App() {
 
   const Lanes = () => (<><div style={S.ph}><h1 style={S.h1}>Lane Analytics</h1></div><div style={S.grid(4)}><StatCard label="Total Lanes" value={lanes.length} accent="#2563eb" icon="🗺️" /><StatCard label="Best RPM" value={lanes.length ? `$${fmtN(Math.max(...lanes.map(l => l.miles ? l.revenue / l.miles : 0)))}` : "—"} accent="#16a34a" icon="🏆" /><StatCard label="Total Miles" value={fmtMi(lanes.reduce((s, l) => s + l.miles, 0))} accent="#d97706" icon="🛣️" /><StatCard label="Total Revenue" value={fmt$(lanes.reduce((s, l) => s + l.revenue, 0))} accent="#16a34a" icon="💰" /></div><div style={S.tableWrap}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Lane", "Loads", "Miles", "Revenue", "Profit", "$/Mile", "Avg/Load"].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>{lanes.length === 0 && <tr><td colSpan={7} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No lane data yet.</td></tr>}{lanes.map((l, i) => { const rpm = l.miles ? l.revenue / l.miles : 0; return (<tr key={l.lane} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}><TD bold color={i === 0 ? "#d97706" : "#111827"}>{i === 0 ? "🏆 " : ""}{l.lane}</TD><TD mono>{l.loads}</TD><TD mono>{fmtMi(l.miles)}</TD><TD mono color="#16a34a">{fmt$(l.revenue)}</TD><TD mono color={l.profit >= 0 ? "#16a34a" : "#dc2626"}>{fmt$(l.profit)}</TD><TD mono color={rpm >= 3 ? "#16a34a" : rpm >= 2 ? "#d97706" : "#dc2626"} bold>${fmtN(rpm)}</TD><TD mono>{fmt$(l.loads ? l.revenue / l.loads : 0)}</TD></tr>); })}</tbody></table></div></div></>);
 
-  const Reports = () => { const netMi = avgRPM - cpm; return (<><div style={S.ph}><h1 style={S.h1}>Reports & KPIs</h1></div><TruckBar /><div style={S.grid(4)}><StatCard label="Cost/Mile" value={"$" + fmtN(cpm)} sub="All-in CPM" accent="#dc2626" icon="⚙️" /><StatCard label="Revenue/Mile" value={"$" + fmtN(avgRPM)} sub="Gross RPM" accent="#16a34a" icon="💹" /><StatCard label="Net/Mile" value={"$" + fmtN(netMi)} sub="After all costs" accent={netMi >= 0 ? "#16a34a" : "#dc2626"} icon="🎯" /><StatCard label="Fuel%Rev" value={fmtN(totalRev ? totalFuel / totalRev * 100 : 0) + "%"} sub="Target <25%" accent="#7c3aed" icon="⛽" /></div><div style={S.card}><div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 16, textTransform: "uppercase" }}>KPI Benchmarks</div>{[{ l: "Revenue/Mile", v: avgRPM, target: 3.0, f: v => `$${fmtN(v)}`, note: "target $3.00+" }, { l: "Profit Margin", v: margin, target: 15, f: v => `${fmtN(v)}%`, note: "target 15%+" }, { l: "Cost/Mile", v: cpm, target: 2.5, f: v => `$${fmtN(v)}`, note: "target <$2.50", inv: true }, { l: "Fuel%Rev", v: totalRev ? totalFuel / totalRev * 100 : 0, target: 25, f: v => `${fmtN(v)}%`, note: "target <25%", inv: true }, { l: "Fleet MPG", v: mpg, target: 6.5, f: v => `${fmtN(v, 1)}`, note: "target 6.5+" }].map(k => { const good = k.inv ? k.v <= k.target : k.v >= k.target; const pct = Math.min(100, Math.abs((k.v / k.target) * 100)); return (<div key={k.l} style={{ marginBottom: 18 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ color: "#374151", fontSize: 13, fontWeight: 600 }}>{k.l}</span><span style={{ color: good ? "#16a34a" : "#dc2626", fontWeight: 700, fontFamily: "monospace" }}>{k.f(k.v)} <span style={{ color: "#9ca3af", fontSize: 10, fontWeight: 400 }}>({k.note})</span></span></div><div style={{ background: "#e5e7eb", borderRadius: 99, height: 7 }}><div style={{ width: `${pct}%`, height: "100%", background: good ? "#16a34a" : "#dc2626", borderRadius: 99 }} /></div></div>); })}</div></>); };
+  const Reports = () => {
+    const [preset, setPreset] = useState("week");
+    const [customStart, setCustomStart] = useState("");
+    const [customEnd, setCustomEnd] = useState("");
+    const [truck1, setTruck1] = useState("FLEET");
+    const [truck2, setTruck2] = useState("NONE");
+    const [compare, setCompare] = useState(false);
+
+    const getDateRange = (p) => {
+      const now = new Date();
+      const fmt = d => d.toISOString().slice(0, 10);
+      const start = new Date(now);
+      switch(p) {
+        case "today": start.setHours(0,0,0,0); return { start: fmt(start), end: fmt(now) };
+        case "yesterday": start.setDate(start.getDate()-1); start.setHours(0,0,0,0); const end = new Date(start); end.setHours(23,59,59); return { start: fmt(start), end: fmt(end) };
+        case "2days": start.setDate(start.getDate()-2); return { start: fmt(start), end: fmt(now) };
+        case "week": start.setDate(start.getDate()-7); return { start: fmt(start), end: fmt(now) };
+        case "lastweek": { const s = new Date(now); s.setDate(s.getDate() - s.getDay() - 7); const e = new Date(s); e.setDate(e.getDate()+6); return { start: fmt(s), end: fmt(e) }; }
+        case "month": start.setDate(1); return { start: fmt(start), end: fmt(now) };
+        case "lastmonth": { const s = new Date(now.getFullYear(), now.getMonth()-1, 1); const e = new Date(now.getFullYear(), now.getMonth(), 0); return { start: fmt(s), end: fmt(e) }; }
+        case "custom": return { start: customStart, end: customEnd };
+        default: start.setDate(start.getDate()-7); return { start: fmt(start), end: fmt(now) };
+      }
+    };
+
+    const { start, end } = getDateRange(preset);
+
+    const filterLoads = (tId) => loads.filter(l => {
+      const inDate = (!start || l.date >= start) && (!end || l.date <= end);
+      const inTruck = tId === "FLEET" || l.truckId === tId;
+      return inDate && inTruck;
+    });
+
+    const calcStats = (tId) => {
+      const fl = filterLoads(tId);
+      const ff = fuelLog.filter(f => (!start || f.date >= start) && (!end || f.date <= end) && (tId === "FLEET" || f.truckId === tId));
+      const fe = expenses.filter(e => (!start || e.date >= start) && (!end || e.date <= end) && (tId === "FLEET" || e.truckId === tId || e.truckId === "FLEET"));
+      const rev = fl.reduce((s,l) => s + Number(l.rate||0) + Number(l.detention||0), 0);
+      const driverPay = fl.reduce((s,l) => {
+        const mi = l.isTeamLoad ? Number(l.miles||0)/2 : Number(l.miles||0);
+        const dh = l.isTeamLoad ? Number(l.deadheadMiles||0)/2 : Number(l.deadheadMiles||0);
+        return s + Number(l.driverCpm||0)*(mi+dh) + Number(l.driverOopExpenses||0);
+      }, 0);
+      const fuel = ff.reduce((s,f) => s + Number(f.total||0), 0);
+      const exp = fe.reduce((s,e) => s + Number(e.amount||0), 0);
+      const loadedMi = fl.reduce((s,l) => s + Number(l.miles||0), 0);
+      const dhMi = fl.reduce((s,l) => s + Number(l.deadheadMiles||0), 0);
+      const profit = rev - driverPay - fuel - exp;
+      const margin = rev ? (profit/rev)*100 : 0;
+      const rpm = loadedMi ? rev/loadedMi : 0;
+      return { fl, rev, driverPay, fuel, exp, profit, margin, rpm, loadedMi, dhMi, loads: fl.length };
+    };
+
+    const s1 = calcStats(truck1);
+    const s2 = compare && truck2 !== "NONE" ? calcStats(truck2) : null;
+
+    const presets = [
+      { id: "today", label: "Today" },
+      { id: "yesterday", label: "Yesterday" },
+      { id: "2days", label: "2 Days" },
+      { id: "week", label: "This Week" },
+      { id: "lastweek", label: "Last Week" },
+      { id: "month", label: "This Month" },
+      { id: "lastmonth", label: "Last Month" },
+      { id: "custom", label: "Custom" },
+    ];
+
+    const printReport = () => {
+      const truck1Name = truck1 === "FLEET" ? "All Fleet" : trucks.find(t=>t.id===truck1)?.name || truck1;
+      const truck2Name = s2 ? (truck2 === "FLEET" ? "All Fleet" : trucks.find(t=>t.id===truck2)?.name || truck2) : "";
+      const periodLabel = presets.find(p=>p.id===preset)?.label || preset;
+      const w = window.open("", "_blank");
+      w.document.write(`<!DOCTYPE html><html><head><title>Report — ${periodLabel}</title><style>
+        *{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;max-width:900px;margin:30px auto;color:#111;padding:20px;font-size:13px}
+        .no-print{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+        .no-print button{background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-weight:700;cursor:pointer}
+        h1{font-size:22px;font-weight:900}.sub{color:#6b7280;font-size:11px;letter-spacing:2px;margin-top:2px}
+        .header{border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:20px;display:flex;justify-content:space-between}
+        .stats-grid{display:grid;grid-template-columns:repeat(${s2?4:4},1fr);gap:12px;margin-bottom:20px}
+        .stat-box{border:1.5px solid #e5e7eb;border-radius:8px;padding:14px;text-align:center}
+        .stat-box label{display:block;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6b7280;margin-bottom:6px}
+        .stat-box .val{font-size:18px;font-weight:900;font-family:monospace}
+        .stat-box .sub2{font-size:10px;color:#9ca3af;margin-top:3px}
+        table{width:100%;border-collapse:collapse;margin-bottom:20px}
+        th{background:#1e293b;color:#fff;padding:9px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase}
+        th.r,td.r{text-align:right}td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px}
+        tr:nth-child(even) td{background:#f9fafb}
+        .total-row td{background:#1e293b!important;color:#fff;font-weight:700}
+        .profit-box{background:#d97706;color:#fff;border-radius:10px;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+        .section{font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#6b7280;border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:14px;margin-top:20px}
+        .footer{border-top:1px solid #e5e7eb;padding-top:14px;text-align:center;color:#9ca3af;font-size:10px;margin-top:20px}
+        @media print{.no-print{display:none}}
+      </style></head><body>
+      <div class="no-print"><span style="color:#16a34a;font-weight:700">📊 ${periodLabel} Report — ${truck1Name}</span><button onclick="window.print()">🖨️ Print / Save PDF</button></div>
+      <div class="header">
+        <div><h1>⛟ BHANDARI LOGISTICS LLC</h1><div class="sub">STATEMENT REPORT — ${periodLabel.toUpperCase()} | ${start} TO ${end}</div></div>
+        <div style="text-align:right"><div style="font-size:11px;color:#6b7280">TRUCK / FLEET</div><div style="font-weight:700;font-size:16px">${truck1Name}</div></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-box"><label>Gross Revenue</label><div class="val" style="color:#16a34a">$${fmtN(s1.rev,2)}</div><div class="sub2">${s1.loads} loads</div></div>
+        <div class="stat-box"><label>Driver Pay</label><div class="val" style="color:#d97706">$${fmtN(s1.driverPay,2)}</div><div class="sub2">${fmtMi(s1.loadedMi+s1.dhMi)} mi total</div></div>
+        <div class="stat-box"><label>Fuel + Expenses</label><div class="val" style="color:#dc2626">$${fmtN(s1.fuel+s1.exp,2)}</div><div class="sub2">Fuel: $${fmtN(s1.fuel,2)}</div></div>
+        <div class="stat-box" style="border-color:#d97706"><label>Net Profit</label><div class="val" style="color:${s1.profit>=0?'#16a34a':'#dc2626'}">$${fmtN(s1.profit,2)}</div><div class="sub2">${fmtN(s1.margin,1)}% margin</div></div>
+        <div class="stat-box"><label>Loaded Miles</label><div class="val">$${fmtMi(s1.loadedMi)}</div><div class="sub2">DH: ${fmtMi(s1.dhMi)} mi</div></div>
+        <div class="stat-box"><label>Revenue/Mile</label><div class="val">$${fmtN(s1.rpm,2)}</div><div class="sub2">Target $3.00+</div></div>
+        <div class="stat-box"><label>Driver Pay %</label><div class="val">${fmtN(s1.rev?s1.driverPay/s1.rev*100:0,1)}%</div><div class="sub2">Of gross revenue</div></div>
+        <div class="stat-box"><label>Fuel %</label><div class="val">${fmtN(s1.rev?s1.fuel/s1.rev*100:0,1)}%</div><div class="sub2">Target &lt;25%</div></div>
+      </div>
+      <div class="profit-box"><div style="font-size:14px;font-weight:700">💰 NET PROFIT — ${periodLabel}</div><div style="font-size:28px;font-weight:900;font-family:monospace">$${fmtN(s1.profit,2)}</div></div>
+      <div class="section">LOAD DETAILS</div>
+      <table>
+        <thead><tr><th>#</th><th>Load #</th><th>Date</th><th>Truck</th><th>Route</th><th class="r">Loaded Mi</th><th class="r">DH Mi</th><th class="r">Rate</th><th class="r">Driver Pay</th><th class="r">Profit</th><th>Status</th></tr></thead>
+        <tbody>
+          ${s1.fl.map((l,i) => {
+            const g = Number(l.rate||0)+Number(l.detention||0);
+            const mi = l.isTeamLoad?Number(l.miles||0)/2:Number(l.miles||0);
+            const dh = l.isTeamLoad?Number(l.deadheadMiles||0)/2:Number(l.deadheadMiles||0);
+            const dp = Number(l.driverCpm||0)*(mi+dh)+Number(l.driverOopExpenses||0);
+            const pr = g-dp;
+            const truck = trucks.find(t=>t.id===l.truckId);
+            return `<tr>
+              <td>${i+1}</td><td style="font-weight:700;color:#d97706">${l.loadNum||"—"}</td>
+              <td>${l.date}</td><td>${truck?.name||"—"}</td>
+              <td>${(l.origin||"").split(",")[0]} → ${(l.dest||"").split(",")[0]}</td>
+              <td class="r">${fmtMi(l.miles)}</td>
+              <td class="r">${Number(l.deadheadMiles||0)>0?fmtMi(l.deadheadMiles):"—"}</td>
+              <td class="r">$${fmtN(g,2)}</td>
+              <td class="r">$${fmtN(dp,2)}</td>
+              <td class="r" style="color:${pr>=0?'#16a34a':'#dc2626'};font-weight:700">$${fmtN(pr,2)}</td>
+              <td>${l.status||"—"}</td>
+            </tr>`;
+          }).join("")}
+          <tr class="total-row">
+            <td colspan="5"><strong>TOTALS — ${s1.loads} loads</strong></td>
+            <td class="r">${fmtMi(s1.loadedMi)}</td>
+            <td class="r">${fmtMi(s1.dhMi)}</td>
+            <td class="r">$${fmtN(s1.rev,2)}</td>
+            <td class="r">$${fmtN(s1.driverPay,2)}</td>
+            <td class="r" style="color:#fbbf24">$${fmtN(s1.profit,2)}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="footer">Bhandari Logistics LLC | ${periodLabel} Report | ${start} to ${end} | ${truck1Name} | Generated: ${new Date().toLocaleDateString()}</div>
+      <script>window.onload=()=>window.print();</script>
+      </body></html>`);
+      w.document.close();
+    };
+
+    return (
+      <>
+        <div style={S.ph}>
+          <div><h1 style={S.h1}>📊 Reports & History</h1><div style={{ color: "#6b7280", fontSize: 12 }}>Filter by date range and truck — print professional statements</div></div>
+          <PrimaryBtn onClick={printReport}>🖨️ Print Report</PrimaryBtn>
+        </div>
+
+        {/* Date Range Selector */}
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>📅 Date Range</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: preset === "custom" ? 12 : 0 }}>
+            {presets.map(p => (
+              <button key={p.id} onClick={() => setPreset(p.id)} style={{ background: preset === p.id ? "#1e293b" : "#f9fafb", color: preset === p.id ? "#fff" : "#374151", border: `1.5px solid ${preset === p.id ? "#1e293b" : "#e5e7eb"}`, borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>{p.label}</button>
+            ))}
+          </div>
+          {preset === "custom" && (
+            <div style={{ display: "flex", gap: 12, marginTop: 12, alignItems: "center" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={labelStyle}>From</label>
+                <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={inputStyle} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={labelStyle}>To</label>
+                <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={inputStyle} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Truck Selector */}
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>🚛 Truck Filter</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {[{ id: "FLEET", name: "All Fleet" }, ...trucks].map(t => (
+              <button key={t.id} onClick={() => setTruck1(t.id)} style={{ background: truck1 === t.id ? "#d97706" : "#f9fafb", color: truck1 === t.id ? "#fff" : "#374151", border: `1.5px solid ${truck1 === t.id ? "#d97706" : "#e5e7eb"}`, borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>{t.name}</button>
+            ))}
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8, cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#374151" }}>
+              <input type="checkbox" checked={compare} onChange={e => setCompare(e.target.checked)} />
+              Compare with:
+            </label>
+            {compare && (
+              <select value={truck2} onChange={e => setTruck2(e.target.value)} style={{ ...inputStyle, width: "auto" }}>
+                <option value="NONE">— Select Truck —</option>
+                {[{ id: "FLEET", name: "All Fleet" }, ...trucks].filter(t => t.id !== truck1).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: compare && s2 ? "1fr 1fr" : "1fr", gap: 16, marginBottom: 16 }}>
+          {[{ stats: s1, truckId: truck1 }, ...(compare && s2 ? [{ stats: s2, truckId: truck2 }] : [])].map(({ stats, truckId }) => {
+            const tName = truckId === "FLEET" ? "All Fleet" : trucks.find(t=>t.id===truckId)?.name || truckId;
+            return (
+              <div key={truckId} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 13, padding: "20px 22px" }}>
+                <div style={{ color: "#374151", fontWeight: 800, fontSize: 15, marginBottom: 14 }}>🚛 {tName} — {presets.find(p=>p.id===preset)?.label}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  {[
+                    { l: "Revenue", v: fmt$(stats.rev), c: "#16a34a" },
+                    { l: "Driver Pay", v: fmt$(stats.driverPay), c: "#d97706" },
+                    { l: "Fuel + Exp", v: fmt$(stats.fuel + stats.exp), c: "#dc2626" },
+                    { l: "Net Profit", v: fmt$(stats.profit), c: stats.profit >= 0 ? "#16a34a" : "#dc2626" },
+                    { l: "Loaded Mi", v: fmtMi(stats.loadedMi), c: "#2563eb" },
+                    { l: "Deadhead Mi", v: fmtMi(stats.dhMi), c: "#7c3aed" },
+                    { l: "Rev/Mile", v: `$${fmtN(stats.rpm,2)}`, c: "#d97706" },
+                    { l: "Margin", v: `${fmtN(stats.margin,1)}%`, c: stats.margin >= 15 ? "#16a34a" : "#dc2626" },
+                  ].map(r => (
+                    <div key={r.l} style={{ background: "#f9fafb", borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700, marginBottom: 3 }}>{r.l}</div>
+                      <div style={{ color: r.c, fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>{r.v}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Loads table */}
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr>{["Load#","Date","Route","Loaded Mi","DH Mi","Rate","Driver Pay","Profit","Status"].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+                    <tbody>
+                      {stats.fl.length === 0 && <tr><td colSpan={9} style={{ padding: "24px", textAlign: "center", color: "#9ca3af" }}>No loads in this period</td></tr>}
+                      {stats.fl.map(l => {
+                        const g = Number(l.rate||0)+Number(l.detention||0);
+                        const mi = l.isTeamLoad?Number(l.miles||0)/2:Number(l.miles||0);
+                        const dh = l.isTeamLoad?Number(l.deadheadMiles||0)/2:Number(l.deadheadMiles||0);
+                        const dp = Number(l.driverCpm||0)*(mi+dh)+Number(l.driverOopExpenses||0);
+                        const pr = g - dp;
+                        return (
+                          <tr key={l.id} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                            <TD bold color="#d97706">{l.loadNum}</TD>
+                            <TD>{l.date}</TD>
+                            <TD>{l.origin?.split(",")[0]} → {l.dest?.split(",")[0]}</TD>
+                            <TD mono>{fmtMi(l.miles)}</TD>
+                            <TD mono color="#7c3aed">{Number(l.deadheadMiles||0)>0?fmtMi(l.deadheadMiles):"—"}</TD>
+                            <TD mono>{fmt$(g)}</TD>
+                            <TD mono color="#d97706">{fmt$(dp)}</TD>
+                            <TD mono bold color={pr>=0?"#16a34a":"#dc2626"}>{fmt$(pr)}</TD>
+                            <TD><StatusBadge s={l.status} /></TD>
+                          </tr>
+                        );
+                      })}
+                      {stats.fl.length > 0 && (
+                        <tr style={{ background: "#1e293b" }}>
+                          <td colSpan={3} style={{ padding: "10px 14px", color: "#fff", fontWeight: 700 }}>TOTAL — {stats.loads} loads</td>
+                          <td style={{ padding: "10px 14px", color: "#fff", fontFamily: "monospace", fontWeight: 700, textAlign: "right" }}>{fmtMi(stats.loadedMi)}</td>
+                          <td style={{ padding: "10px 14px", color: "#a78bfa", fontFamily: "monospace", fontWeight: 700, textAlign: "right" }}>{fmtMi(stats.dhMi)}</td>
+                          <td style={{ padding: "10px 14px", color: "#4ade80", fontFamily: "monospace", fontWeight: 700, textAlign: "right" }}>{fmt$(stats.rev)}</td>
+                          <td style={{ padding: "10px 14px", color: "#fbbf24", fontFamily: "monospace", fontWeight: 700, textAlign: "right" }}>{fmt$(stats.driverPay)}</td>
+                          <td style={{ padding: "10px 14px", color: stats.profit>=0?"#4ade80":"#f87171", fontFamily: "monospace", fontWeight: 900, fontSize: 15, textAlign: "right" }}>{fmt$(stats.profit)}</td>
+                          <td></td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* KPI Benchmarks */}
+        <div style={S.card}>
+          <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 16, textTransform: "uppercase" }}>KPI Benchmarks</div>
+          {[
+            { l: "Revenue/Mile", v: s1.rpm, target: 3.0, f: v => `$${fmtN(v)}`, note: "target $3.00+", inv: false },
+            { l: "Profit Margin", v: s1.margin, target: 15, f: v => `${fmtN(v)}%`, note: "target 15%+", inv: false },
+            { l: "Driver Pay %", v: s1.rev?s1.driverPay/s1.rev*100:0, target: 35, f: v => `${fmtN(v)}%`, note: "target <35%", inv: true },
+            { l: "Fuel % of Rev", v: s1.rev?s1.fuel/s1.rev*100:0, target: 25, f: v => `${fmtN(v)}%`, note: "target <25%", inv: true },
+          ].map(k => {
+            const good = k.inv ? k.v <= k.target : k.v >= k.target;
+            const pct = Math.min(100, Math.abs((k.v / k.target) * 100));
+            return (
+              <div key={k.l} style={{ marginBottom: 18 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ color: "#374151", fontSize: 13, fontWeight: 600 }}>{k.l}</span>
+                  <span style={{ color: good ? "#16a34a" : "#dc2626", fontWeight: 700, fontFamily: "monospace" }}>{k.f(k.v)} <span style={{ color: "#9ca3af", fontSize: 10, fontWeight: 400 }}>({k.note})</span></span>
+                </div>
+                <div style={{ background: "#e5e7eb", borderRadius: 99, height: 7 }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: good ? "#16a34a" : "#dc2626", borderRadius: 99 }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </>
+    );
+  };
 
   const DriverLoadsModal = () => {
     const dl = getPaystubLoads(paystubDriver);
@@ -2247,7 +2540,7 @@ export default function App() {
           {maintAlerts.length > 0 && <div style={{ background: "#dc262620", border: "1px solid #dc262644", borderRadius: 6, padding: "5px 8px", color: "#f87171", fontSize: 10, fontWeight: 700 }}>⚠️ {maintAlerts.length} maintenance alert{maintAlerts.length > 1 ? "s" : ""}</div>}
         </div>
         <div style={{ flex: 1 }}>
-          {NAV.map(n => (<button key={n.id} style={S.navBtn(tab === n.id)} onClick={() => setTab(n.id)}>
+          {NAV.map(n => (<button key={n.id} style={S.navBtn(tab === n.id)} onClick={() => switchTab(n.id)}>
             <span style={{ fontSize: 15 }}>{n.icon}</span>
             {n.label}
             {n.id === "factoring" && readyToFactor.length > 0 && <span style={{ marginLeft: "auto", background: "#2563eb", color: "#fff", borderRadius: 99, fontSize: 9, fontWeight: 800, padding: "2px 6px" }}>{readyToFactor.length}</span>}
