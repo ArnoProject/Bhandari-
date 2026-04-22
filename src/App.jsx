@@ -1357,6 +1357,7 @@ export default function App() {
   const [packageInv, setPackageInv] = useState(null);
   const [packageRateSheets, setPackageRateSheets] = useState([]);
   const [packageBols, setPackageBols] = useState([]);
+  const [invFormData, setInvFormData] = useState({ clientId: "", loadId: "", date: today(), dueDate: "", amount: "", notes: "", status: "Sent" });
   const [rateSheets, setRateSheets] = useState([]);
   const [bols, setBols] = useState([]);
   const [extraCharges, setExtraCharges] = useState([]);
