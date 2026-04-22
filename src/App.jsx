@@ -111,11 +111,13 @@ const parseTCSCsv = (text) => {
 
 const printPaystub = (driver, driverLoads, period) => {
   const isTeamDriver = driverLoads.some(l => l.isTeamLoad);
-  const cpm = driverLoads[0]?.driverCpm || 0;
+  const cpm = Number(driverLoads[0]?.driverCpm || 0);
   const now = new Date();
   const issueDate = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const dates = driverLoads.map(l => l.date).filter(Boolean).sort();
+  const periodStart = dates[0] || "";
+  const periodEnd = dates[dates.length-1] || "";
 
-  // Calculate totals including deadhead
   const rows = driverLoads.map((l, i) => {
     const loadedMi = Number(l.miles || 0);
     const dhMi = Number(l.deadheadMiles || 0);
@@ -124,194 +126,206 @@ const printPaystub = (driver, driverLoads, period) => {
     const pay = Number(l.driverCpm || 0) * soloMi + Number(l.driverOopExpenses || 0);
     const dhDesc = dhMi > 0 && l.deadheadOrigin ? `DH: ${l.deadheadOrigin}→${(l.origin||'').split(',')[0]} (${fmtMi(dhMi)}) | ` : '';
     const desc = `${dhDesc}Loaded: ${(l.origin||'').split(',')[0]} → ${(l.dest||'').split(',')[0]}`;
-    return { num: i+1, loadNum: l.loadNum, desc, puDate: l.date, delDate: l.date, dhMi, loadedMi, teamMi, soloMi, pay, cpm: l.driverCpm || 0, origin: l.origin, dest: l.dest };
+    const tripNote = dhMi > 0 
+      ? `Load ${i+1}: DH: ${l.deadheadOrigin||''} → ${(l.origin||'').split(',')[0]} (${fmtMi(dhMi)} mi) | Loaded: ${(l.origin||'').split(',')[0]} → ${(l.dest||'').split(',')[0]}`
+      : `Load ${i+1}: No deadhead — loaded from ${(l.origin||'').split(',')[0]}`;
+    return { num: i+1, loadNum: l.loadNum, desc, tripNote, puDate: l.date, delDate: l.date, dhMi, loadedMi, teamMi, soloMi, pay, cpm: Number(l.driverCpm||0), origin: l.origin, dest: l.dest, detention: Number(l.detention||0), oop: Number(l.driverOopExpenses||0) };
   });
 
-  const totalDH = rows.reduce((s, r) => s + r.dhMi, 0);
-  const totalLoaded = rows.reduce((s, r) => s + r.loadedMi, 0);
-  const totalTeam = rows.reduce((s, r) => s + r.teamMi, 0);
-  const totalSolo = rows.reduce((s, r) => s + r.soloMi, 0);
-  const totalPay = rows.reduce((s, r) => s + r.pay, 0);
+  const totalDH = rows.reduce((s,r) => s + r.dhMi, 0);
+  const totalLoaded = rows.reduce((s,r) => s + r.loadedMi, 0);
+  const totalTeam = rows.reduce((s,r) => s + r.teamMi, 0);
+  const totalSolo = rows.reduce((s,r) => s + r.soloMi, 0);
+  const totalPay = rows.reduce((s,r) => s + r.pay, 0);
+  const totalDetention = rows.reduce((s,r) => s + r.detention, 0);
 
   const w = window.open("", "_blank");
   w.document.write(`<!DOCTYPE html><html><head><title>Paystub - ${driver}</title><style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Arial',sans-serif;max-width:800px;margin:30px auto;color:#111;font-size:13px;padding:20px}
+    body{font-family:Arial,sans-serif;max-width:820px;margin:30px auto;color:#111;padding:24px;font-size:13px}
     .no-print{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
-    .no-print button{background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-weight:700;cursor:pointer;font-size:13px}
-    h1{font-size:22px;font-weight:900;color:#111;letter-spacing:1px}
-    .sub{color:#6b7280;font-size:12px;letter-spacing:2px;margin-top:2px}
-    .header{border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-start}
-    .info-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:20px;background:#f9fafb;border-radius:8px;padding:16px}
-    .info-box label{display:block;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-bottom:4px}
-    .info-box span{font-size:14px;font-weight:700;color:#111}
-    .formula{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 14px;margin-bottom:18px;font-size:11px;color:#92400e;font-weight:600}
-    .section-title{font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#6b7280;border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:0}
-    table{width:100%;border-collapse:collapse;margin-bottom:20px}
-    th{background:#1e293b;color:#fff;padding:9px 10px;text-align:left;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
+    .no-print button{background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-weight:700;cursor:pointer}
+    .co-name{font-size:20px;font-weight:900;letter-spacing:1px}
+    .co-sub{font-size:11px;color:#6b7280;letter-spacing:2px;margin-top:2px}
+    .header{border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-start}
+    .info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:14px;overflow:hidden}
+    .info-box{padding:12px 14px;border-right:1px solid #e5e7eb}
+    .info-box:last-child{border-right:none}
+    .info-box label{display:block;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-bottom:5px}
+    .info-box span{font-size:13px;font-weight:700;color:#111}
+    .formula{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#92400e;font-weight:600;line-height:1.6}
+    .section{font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#fff;background:#1e293b;padding:8px 12px;margin-bottom:0}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    th{background:#f1f5f9;color:#374151;padding:9px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e5e7eb}
     th.r,td.r{text-align:right}
-    td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;vertical-align:top}
-    tr:nth-child(even) td{background:#f9fafb}
-    .total-row td{background:#1e293b!important;color:#fff;font-weight:700;font-size:13px;padding:10px}
-    .summary-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px}
-    .summary-box{border:1.5px solid #e5e7eb;border-radius:8px;padding:14px;text-align:center}
-    .summary-box label{display:block;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6b7280;margin-bottom:6px}
-    .summary-box .val{font-size:20px;font-weight:900;color:#111;font-family:monospace}
+    td{padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;vertical-align:top}
+    .total-row td{background:#1e293b!important;color:#fff;font-weight:700;font-size:13px;padding:11px 10px}
+    .notes-box{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:16px;font-size:11px;color:#374151;line-height:2}
+    .notes-box strong{color:#111;display:block;font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+    .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:16px;overflow:hidden}
+    .summary-box{padding:16px;text-align:center;border-right:1px solid #e5e7eb}
+    .summary-box:last-child{border-right:none;background:#fffbeb}
+    .summary-box label{display:block;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6b7280;margin-bottom:8px}
+    .summary-box .val{font-size:22px;font-weight:900;font-family:monospace}
     .summary-box .sub2{font-size:10px;color:#9ca3af;margin-top:4px}
-    .pay-box{background:#d97706;color:#fff;border-radius:10px;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
-    .pay-box .label{font-size:14px;font-weight:700;letter-spacing:1px}
-    .pay-box .amount{font-size:32px;font-weight:900;font-family:monospace}
-    .calc-note{background:#f9fafb;border-radius:8px;padding:14px;font-size:11px;color:#374151;line-height:1.8;margin-bottom:20px}
+    .pay-box{background:#1e293b;color:#fff;border-radius:10px;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+    .pay-label{font-size:13px;font-weight:700;letter-spacing:1px}
+    .pay-amount{font-size:32px;font-weight:900;font-family:monospace;color:#fbbf24}
+    .calc-note{background:#f9fafb;border-radius:8px;padding:14px;font-size:11px;color:#374151;line-height:1.9;margin-bottom:16px}
     .calc-note strong{color:#111}
-    .footer{border-top:1px solid #e5e7eb;padding-top:14px;text-align:center;color:#9ca3af;font-size:10px;margin-top:20px}
+    .footer{border-top:1px solid #e5e7eb;padding-top:12px;text-align:center;color:#9ca3af;font-size:10px}
     @media print{.no-print{display:none}body{margin:0;padding:15px}}
   </style></head><body>
-    <div class="no-print">
-      <span style="color:#16a34a;font-weight:700">✅ ${driver}'s Paystub — Ready to print or save as PDF</span>
-      <button onclick="window.print()">🖨️ Print / Save PDF</button>
+  <div class="no-print">
+    <span style="color:#16a34a;font-weight:700">✅ ${driver}'s Paystub Ready — Print or Save as PDF</span>
+    <button onclick="window.print()">🖨️ Print / Save PDF</button>
+  </div>
+
+  <div class="header">
+    <div>
+      <div class="co-name">⛟ BHANDARI LOGISTICS LLC</div>
+      <div class="co-sub">DRIVER PAY STATEMENT — ${period.toUpperCase()}</div>
     </div>
-
-    <div class="header">
-      <div>
-        <h1>⛟ BHANDARI LOGISTICS LLC</h1>
-        <div class="sub">DRIVER PAY STATEMENT — ${period.toUpperCase()}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:11px;color:#6b7280">ISSUE DATE</div>
-        <div style="font-weight:700">${issueDate}</div>
-      </div>
+    <div style="text-align:right;font-size:12px;color:#6b7280">
+      <div>ISSUE DATE</div>
+      <div style="font-weight:700;color:#111;font-size:13px">${issueDate}</div>
     </div>
+  </div>
 
-    <div class="info-grid">
-      <div class="info-box"><label>Driver Name</label><span>${driver}</span></div>
-      <div class="info-box"><label>Driver Type</label><span>${isTeamDriver ? "Team Driver" : "Solo Driver"}</span></div>
-      <div class="info-box"><label>Pay Rate</label><span>$${fmtN(cpm, 2)} / Mile</span></div>
-      <div class="info-box"><label>Total Loads</label><span>${driverLoads.length} loads</span></div>
+  <div class="info-grid">
+    <div class="info-box"><label>Pay Period</label><span>${periodStart} – ${periodEnd}</span></div>
+    <div class="info-box"><label>Driver Name</label><span>${driver}</span></div>
+    <div class="info-box"><label>Driver Type</label><span>${isTeamDriver ? "Team Driver" : "Solo Driver"}</span></div>
+    <div class="info-box"><label>Pay Rate</label><span>$${fmtN(cpm,2)} / Mile</span></div>
+  </div>
+
+  <div class="formula">
+    ${isTeamDriver
+      ? `TEAM LOAD: Deadhead Miles + Loaded Miles = Team Miles &nbsp;|&nbsp; Team Miles ÷ 2 = Solo Miles &nbsp;|&nbsp; Solo Miles × $${fmtN(cpm,2)} = Pay`
+      : `All miles verified city-to-city. Solo driver — full miles paid at $${fmtN(cpm,2)}/mile. Deadhead miles included.`
+    }
+  </div>
+
+  <div class="section">LOAD DETAILS</div>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Pick Up</th>
+        <th>Delivery</th>
+        <th>PU Date</th>
+        <th class="r">DH Miles</th>
+        <th class="r">Del Miles</th>
+        <th class="r">${isTeamDriver ? "Team Miles" : "Total Miles"}</th>
+        ${isTeamDriver ? `<th class="r">Solo Miles</th>` : ""}
+        <th class="r">Rate</th>
+        <th class="r">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(r => `<tr>
+        <td style="font-weight:700">${r.num}</td>
+        <td>${(r.origin||"").split(",")[0]}</td>
+        <td>${(r.dest||"").split(",")[0]}</td>
+        <td>${r.puDate}</td>
+        <td class="r">${r.dhMi > 0 ? fmtMi(r.dhMi) : "—"}</td>
+        <td class="r">${fmtMi(r.loadedMi).toLocaleString()}</td>
+        <td class="r" style="font-weight:700">${fmtMi(r.teamMi).toLocaleString()}</td>
+        ${isTeamDriver ? `<td class="r" style="font-weight:700;color:#2563eb">${fmtMi(r.soloMi).toLocaleString()}</td>` : ""}
+        <td class="r">$${fmtN(r.cpm,2)}</td>
+        <td class="r" style="font-weight:700;color:#d97706">$${fmtN(r.pay,2)}</td>
+      </tr>`).join("")}
+      <tr class="total-row">
+        <td colspan="4">TOTAL</td>
+        <td class="r">${totalDH > 0 ? fmtMi(totalDH) : "—"}</td>
+        <td class="r">${fmtMi(totalLoaded).toLocaleString()}</td>
+        <td class="r">${fmtMi(totalTeam).toLocaleString()}</td>
+        ${isTeamDriver ? `<td class="r">${fmtMi(totalSolo).toLocaleString()}</td>` : ""}
+        <td class="r">—</td>
+        <td class="r" style="color:#fbbf24;font-size:15px">$${fmtN(totalPay,2)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section" style="margin-bottom:12px">TRIP NOTES</div>
+  <div class="notes-box">
+    ${rows.map(r => `<div>${r.tripNote}</div>`).join("")}
+    ${totalDetention > 0 ? `<div style="color:#7c3aed;margin-top:6px">Detention pay included: $${fmtN(totalDetention,2)}</div>` : ""}
+  </div>
+
+  <div class="section" style="margin-bottom:0">PAY SUMMARY</div>
+  <div class="summary-grid">
+    <div class="summary-box">
+      <label>Deadhead Miles</label>
+      <div class="val">${fmtMi(totalDH)}</div>
+      <div class="sub2">Empty miles this period</div>
     </div>
-
-    ${isTeamDriver ? `<div class="formula">TEAM LOAD: Deadhead Miles + Loaded Miles = Team Miles | Team Miles ÷ 2 = Solo Miles | Solo Miles × $${fmtN(cpm, 2)} = Pay</div>` : `<div class="formula">Deadhead Miles + Loaded Miles = Total Miles | Total Miles × $${fmtN(cpm, 2)} = Pay</div>`}
-
-    <div class="section-title">LOAD DETAILS</div>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Load #</th>
-          <th>Pick Up</th>
-          <th>Delivery</th>
-          <th class="r">DH Mi</th>
-          <th class="r">Del Mi</th>
-          <th class="r">${isTeamDriver ? "Team Mi" : "Total Mi"}</th>
-          ${isTeamDriver ? "<th class='r'>Solo Mi</th>" : ""}
-          <th class="r">Rate</th>
-          <th class="r">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td>${r.num}</td>
-            <td style="font-weight:700;color:#d97706">${r.loadNum || "—"}</td>
-            <td>${(r.origin||"").split(",")[0]}</td>
-            <td>${(r.dest||"").split(",")[0]}</td>
-            <td class="r">${r.dhMi > 0 ? fmtMi(r.dhMi) : "—"}</td>
-            <td class="r">${fmtMi(r.loadedMi)}</td>
-            <td class="r" style="font-weight:700">${fmtMi(r.teamMi)}</td>
-            ${isTeamDriver ? `<td class="r" style="font-weight:700;color:#2563eb">${fmtMi(r.soloMi)}</td>` : ""}
-            <td class="r">$${fmtN(r.cpm, 2)}</td>
-            <td class="r" style="font-weight:700;color:#d97706">$${fmtN(r.pay, 2)}</td>
-          </tr>
-        `).join("")}
-        <tr class="total-row">
-          <td colspan="4">TOTAL</td>
-          <td class="r">${totalDH > 0 ? fmtMi(totalDH) : "—"}</td>
-          <td class="r">${fmtMi(totalLoaded)}</td>
-          <td class="r">${fmtMi(totalTeam)}</td>
-          ${isTeamDriver ? `<td class="r">${fmtMi(totalSolo)}</td>` : ""}
-          <td class="r">—</td>
-          <td class="r" style="color:#fbbf24;font-size:15px">$${fmtN(totalPay, 2)}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="section-title" style="margin-bottom:14px">PAY SUMMARY</div>
-    <div class="summary-grid">
-      <div class="summary-box">
-        <label>${isTeamDriver ? "Total Team Miles" : "Total Miles"}</label>
-        <div class="val">${fmtMi(totalTeam)}</div>
-        <div class="sub2">${isTeamDriver ? "All miles both drivers" : "Loaded + deadhead"}</div>
-      </div>
-      ${isTeamDriver ? `
-      <div class="summary-box">
-        <label>${driver}'s Solo Miles</label>
-        <div class="val" style="color:#2563eb">${fmtMi(totalSolo)}</div>
-        <div class="sub2">Team miles (${fmtMi(totalTeam)}) ÷ 2</div>
-      </div>` : ""}
-      <div class="summary-box">
-        <label>Pay Rate</label>
-        <div class="val">$${fmtN(cpm, 2)}</div>
-        <div class="sub2">Per ${isTeamDriver ? "solo" : ""} mile</div>
-      </div>
-      <div class="summary-box" style="border-color:#d97706">
-        <label>Total Pay</label>
-        <div class="val" style="color:#d97706">$${fmtN(totalPay, 2)}</div>
-        <div class="sub2">${fmtMi(totalSolo)} mi × $${fmtN(cpm, 2)}</div>
-      </div>
+    <div class="summary-box">
+      <label>Loaded Miles</label>
+      <div class="val">${fmtMi(totalLoaded)}</div>
+      <div class="sub2">Paid delivery miles</div>
     </div>
-
-    <div class="pay-box">
-      <div class="label">💰 TOTAL PAY THIS PERIOD</div>
-      <div class="amount">$${fmtN(totalPay, 2)}</div>
+    ${isTeamDriver ? `
+    <div class="summary-box">
+      <label>Solo Miles</label>
+      <div class="val" style="color:#2563eb">${fmtMi(totalSolo)}</div>
+      <div class="sub2">Team miles ÷ 2</div>
+    </div>` : ""}
+    <div class="summary-box" style="${isTeamDriver ? "" : "grid-column:span 2"}">
+      <label>Total Pay</label>
+      <div class="val" style="color:#d97706">$${fmtN(totalPay,2)}</div>
+      <div class="sub2">${fmtMi(totalSolo)} miles × $${fmtN(cpm,2)}</div>
     </div>
+  </div>
 
-    <div class="section-title" style="margin-bottom:14px">EARNINGS BREAKDOWN</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Load Description</th>
-          <th class="r">${isTeamDriver ? "Team Mi" : "Total Mi"}</th>
-          ${isTeamDriver ? "<th class='r'>Solo Mi</th>" : ""}
-          <th class="r">Rate</th>
-          <th class="r">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td>Load ${r.num}${r.loadNum ? ` (${r.loadNum})` : ""} — ${r.desc}</td>
-            <td class="r">${fmtMi(r.teamMi)}</td>
-            ${isTeamDriver ? `<td class="r">${fmtMi(r.soloMi)}</td>` : ""}
-            <td class="r">$${fmtN(r.cpm, 2)}</td>
-            <td class="r" style="font-weight:700">$${fmtN(r.pay, 2)}</td>
-          </tr>
-        `).join("")}
-        <tr class="total-row">
-          <td><strong>TOTAL</strong></td>
-          <td class="r">${fmtMi(totalTeam)}</td>
-          ${isTeamDriver ? `<td class="r">${fmtMi(totalSolo)}</td>` : ""}
-          <td class="r">—</td>
-          <td class="r" style="color:#fbbf24">$${fmtN(totalPay, 2)}</td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="pay-box">
+    <div class="pay-label">💰 TOTAL PAY THIS PERIOD</div>
+    <div class="pay-amount">$${fmtN(totalPay,2)}</div>
+  </div>
 
-    <div class="calc-note">
-      <strong>HOW YOUR PAY IS CALCULATED:</strong><br>
-      ${isTeamDriver
-        ? `* Deadhead (empty) + Loaded miles = Team Miles. Team Miles ÷ 2 = Your Solo Miles. Solo Miles × $${fmtN(cpm, 2)} = Your Pay.<br>
-           * Both deadhead and loaded miles count toward your pay. Questions? Contact Bhandari Logistics LLC.`
-        : `* Deadhead (empty) + Loaded miles = Total Miles. Total Miles × $${fmtN(cpm, 2)} = Your Pay.<br>
-           * Both deadhead and loaded miles count toward your pay. Questions? Contact Bhandari Logistics LLC.`
-      }
-    </div>
+  <div class="section" style="margin-bottom:0">EARNINGS BREAKDOWN</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Load Description</th>
+        <th class="r">${isTeamDriver ? "Team Miles" : "Miles"}</th>
+        ${isTeamDriver ? `<th class="r">Solo Miles</th>` : ""}
+        <th class="r">Rate</th>
+        <th class="r">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(r => `<tr>
+        <td>Load ${r.num}${r.loadNum ? ` — ${r.loadNum}` : ""} — ${r.desc}</td>
+        <td class="r">${fmtMi(r.teamMi)}</td>
+        ${isTeamDriver ? `<td class="r">${fmtMi(r.soloMi)}</td>` : ""}
+        <td class="r">$${fmtN(r.cpm,2)}</td>
+        <td class="r" style="font-weight:700">$${fmtN(r.pay,2)}</td>
+      </tr>`).join("")}
+      <tr class="total-row">
+        <td>TOTAL EARNED</td>
+        <td class="r">${fmtMi(totalTeam)}</td>
+        ${isTeamDriver ? `<td class="r">${fmtMi(totalSolo)}</td>` : ""}
+        <td class="r">—</td>
+        <td class="r" style="color:#fbbf24">$${fmtN(totalPay,2)}</td>
+      </tr>
+    </tbody>
+  </table>
 
-    <div class="footer">
-      Bhandari Logistics LLC | Pay Period: ${period} | Driver: ${driver} | Generated: ${issueDate} &nbsp;|&nbsp; CONFIDENTIAL — FOR DRIVER USE ONLY
-    </div>
-    <script>window.onload=()=>window.print();</script>
+  <div class="calc-note">
+    <strong>NOTES:</strong><br>
+    * Deadhead miles paid at $${fmtN(cpm,2)}/mile. ${isTeamDriver ? `Team miles split 50/50 between drivers.` : `Home return miles not counted per company policy.`}<br>
+    * Questions? Contact Bhandari Logistics LLC — bhandarilogistics78@gmail.com
+  </div>
+
+  <div class="footer">
+    Bhandari Logistics LLC &nbsp;|&nbsp; Pay Period: ${periodStart} to ${periodEnd} &nbsp;|&nbsp; Driver: ${driver} &nbsp;|&nbsp; Generated: ${issueDate} &nbsp;|&nbsp; <strong>CONFIDENTIAL — FOR DRIVER USE ONLY</strong>
+  </div>
+  <script>window.onload=()=>window.print();</script>
   </body></html>`);
   w.document.close();
 };
+
 
 const Badge = ({ label, color = "#6b7280" }) => (<span style={{ background: color + "18", color, border: `1.5px solid ${color}44`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>);
 const StatusBadge = ({ s }) => { const map = { Delivered: "#16a34a", "In Transit": "#d97706", Pending: "#6b7280", Cancelled: "#dc2626" }; return <Badge label={s} color={map[s] || "#6b7280"} />; };
@@ -913,7 +927,22 @@ const FactoringDetailModal = ({ load, truck, trailer, onClose, onUpdateStatus })
       `ADVANCE TO YOU: ${fmt$(fct.advance)}`,
       `Reserve balance (released later): ${fmt$(fct.reserve)}`,
     ].join("\n");
-    navigator.clipboard.writeText(text);
+    // Mobile-safe clipboard copy
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+    } catch {}
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -1065,7 +1094,29 @@ const RateConModal = ({ onClose, onLoad, trucks, trailers, drivers, draft, onSav
             <Field label="Trailer" value={f.trailerId || ""} onChange={v => setF(p => ({ ...p, trailerId: v }))} options={[{ value: "", label: "— None —" }, ...trailers.map(t => ({ value: t.id, label: t.name }))]} />
             <Field label="Broker / Customer" value={f.brokerName} onChange={v => setF(p => ({ ...p, brokerName: v }))} />
             <Field label="Broker MC#" value={f.brokerMC} onChange={v => setF(p => ({ ...p, brokerMC: v }))} />
-            <Field label="Miles" type="number" value={f.miles} onChange={v => setF(p => ({ ...p, miles: v }))} placeholder="Enter total miles" />
+            <Field label="Miles" type="number" value={f.miles} onChange={v => setF(p => ({ ...p, miles: v }))} placeholder="Enter miles or click auto-calc" />
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <label style={labelStyle}>Auto-Calculate Miles</label>
+              <button onClick={async () => {
+                if (!f.origin || !f.dest) return;
+                try {
+                  const [fromRes, toRes] = await Promise.all([
+                    fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(f.origin)}&format=json&limit=1&countrycodes=us`),
+                    fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(f.dest)}&format=json&limit=1&countrycodes=us`)
+                  ]);
+                  const [fromData, toData] = await Promise.all([fromRes.json(), toRes.json()]);
+                  if (fromData[0] && toData[0]) {
+                    const from = { lat: parseFloat(fromData[0].lat), lon: parseFloat(fromData[0].lon) };
+                    const to = { lat: parseFloat(toData[0].lat), lon: parseFloat(toData[0].lon) };
+                    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`);
+                    const data = await res.json();
+                    if (data.routes?.[0]) setF(p => ({ ...p, miles: String(Math.round(data.routes[0].distance / 1609.34)) }));
+                  }
+                } catch {}
+              }} style={{ background: "#eff6ff", color: "#2563eb", border: "1.5px solid #2563eb", borderRadius: 8, padding: "10px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
+                🗺️ Auto-Calc {f.origin && f.dest ? `${f.origin.split(',')[0]} → ${f.dest.split(',')[0]}` : "Miles"}
+              </button>
+            </div>
             <Field label="Rate ($)" type="number" value={f.rate} onChange={v => setF(p => ({ ...p, rate: v }))} />
           </div>
 
@@ -1717,9 +1768,9 @@ export default function App() {
                       <TD>{truck && <Badge label={truck.name} color={truck.color} />}</TD>
                       <TD>{l.driver || "—"}</TD>
                       <TD>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                          <button style={S.btnFactor} onClick={() => { setFactoringLoad(l); setModal("factoringDetail"); }}>📋 View & Copy</button>
-                          <button style={{ ...S.btnFactor, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }} onClick={() => updateFactoringStatus(l.id, "Submitted")}>✅ Mark Submitted</button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <button style={{ ...S.btnFactor, padding: "8px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 4 }} onClick={() => { setFactoringLoad(l); setModal("factoringDetail"); }}>📋 View & Copy</button>
+                          <button style={{ background: "#f0fdf4", color: "#16a34a", border: "1.5px solid #bbf7d0", borderRadius: 7, padding: "8px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }} onClick={() => updateFactoringStatus(l.id, "Submitted")}>✅ Mark Submitted</button>
                         </div>
                       </TD>
                     </tr>
