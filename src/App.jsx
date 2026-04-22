@@ -2251,7 +2251,7 @@ export default function App() {
         .doc-img{width:100%;display:block}.footer{text-align:center;color:#9ca3af;font-size:11px;padding-top:14px;border-top:1px solid #e5e7eb;margin-top:20px}
         @media print{.no-print{display:none}.page{margin:0;padding:20px}}
       </style></head><body>
-      <div class="no-print"><span style="font-weight:700;color:#16a34a">📦 Invoice Package #${inv.invoiceNumber} — ${client?.name||""} — Ready!</span><button onclick="window.print()">🖨️ Print / Save PDF</button></div>
+      <div class="no-print"><span style="font-weight:700;color:#16a34a">📦 Invoice Package #${inv.invoiceNumber} — ${client?.name||""} — Ready!</span><button onclick="printPkg()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-weight:700;cursor:pointer;font-size:14px">🖨️ Print / Save PDF</button></div>
       <div class="page">
         <div class="header">
           <div><div style="font-size:22px;font-weight:900">⛟ BHANDARI LOGISTICS LLC</div><div style="color:#6b7280;font-size:12px;margin-top:4px">7615 N 90TH ST · OMAHA, NE 68122 · Tel: (402) 591-0847 · bhandarilogistics78@gmail.com · MC# 1166353</div></div>
@@ -2282,9 +2282,26 @@ export default function App() {
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:12px;color:#1e40af"><strong>Payment:</strong> ACH within ${client?.paymentTerms||"2"} business days · (402) 591-0847 · bhandarilogistics78@gmail.com</div>
         <div class="footer">Page 1 of ${1+packageRateSheets.length+packageBols.length} · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
       </div>
-      ${packageRateSheets.map((rs,i)=>`<div class="divider">— RATE CONFIRMATION${packageRateSheets.length>1?" "+(i+1):""} —</div><div class="page"><img src="${rs.data}" class="doc-img"/><div class="footer">Rate Confirmation · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
-      ${packageBols.map((b,i)=>`<div class="divider">— BILL OF LADING${packageBols.length>1?" "+(i+1):""} —</div><div class="page"><img src="${b.data}" class="doc-img"/><div class="footer">Bill of Lading · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
-      <script>window.onload=()=>window.print();</script></body></html>`);
+      ${packageRateSheets.map((rs,i)=>{
+        const isPdf = rs.data.startsWith('data:application/pdf') || rs.name?.toLowerCase().endsWith('.pdf');
+        const docEl = isPdf 
+          ? `<embed src="${rs.data}" type="application/pdf" width="100%" height="1000px" style="display:block"/>`
+          : `<img src="${rs.data}" style="width:100%;display:block"/>`;
+        return `<div class="divider">— RATE CONFIRMATION${packageRateSheets.length>1?" "+(i+1):""} —</div><div class="page" style="padding:0">${docEl}<div class="footer" style="padding:14px">Rate Confirmation · Invoice #${inv.invoiceNumber}</div></div>`;
+      }).join("")}
+      ${packageBols.map((b,i)=>{
+        const isPdf = b.data.startsWith('data:application/pdf') || b.name?.toLowerCase().endsWith('.pdf');
+        const docEl = isPdf
+          ? `<embed src="${b.data}" type="application/pdf" width="100%" height="1000px" style="display:block"/>`
+          : `<img src="${b.data}" style="width:100%;display:block"/>`;
+        return `<div class="divider">— BILL OF LADING${packageBols.length>1?" "+(i+1):""} —</div><div class="page" style="padding:0">${docEl}<div class="footer" style="padding:14px">Bill of Lading · Invoice #${inv.invoiceNumber}</div></div>`;
+      }).join("")}
+      <script>
+        function printPkg() {
+          // Wait for all content to load then print
+          setTimeout(() => window.print(), 1000);
+        }
+      </script></body></html>`);
       w.document.close();
       setPackageInv(null); setPackageRateSheets([]); setPackageBols([]);
     };
