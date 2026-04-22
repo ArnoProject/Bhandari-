@@ -1372,10 +1372,12 @@ export default function App() {
   const handleSignOut = async () => { await db.auth.signOut(); };
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
 
+  const [payPeriods, setPayPeriods] = useState([]);
+
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [t, tr, l, f, e, m, ins, dr, dc, inv] = await Promise.all([
+      const [t, tr, l, f, e, m, ins, dr, dc, inv, pp] = await Promise.all([
         db.from("trucks").select("*").order("created_at"),
         db.from("trailers").select("*").order("created_at"),
         db.from("loads").select("*").order("date", { ascending: false }),
@@ -1386,10 +1388,11 @@ export default function App() {
         db.from("drivers").select("*").order("name"),
         db.from("direct_clients").select("*").order("name"),
         db.from("invoices").select("*").order("invoice_number", { ascending: false }),
+        db.from("pay_periods").select("*").order("created_at", { ascending: false }),
       ]);
       if (t.data) setTrucks(t.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, color: r.color, active: r.active })));
       if (tr.data) setTrailers(tr.data.map(r => ({ id: r.id, name: r.name, plate: r.plate, year: r.year, make: r.make, model: r.model, type: r.type, color: r.color, active: r.active })));
-      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverCpm: r.driver_cpm || 0, driverOopExpenses: r.driver_oop_expenses || 0, isTeamLoad: r.is_team_load || false, driver2: r.driver2 || "", driver2Cpm: r.driver2_cpm || 0, deadheadMiles: r.deadhead_miles || 0, deadheadOrigin: r.deadhead_origin || "", truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "", isDirectClient: r.is_direct_client || false, clientId: r.client_id || "", invoiceId: r.invoice_id || "" })));
+      if (l.data) setLoads(l.data.map(r => ({ id: r.id, date: r.date, loadNum: r.load_num, origin: r.origin, dest: r.dest, miles: r.miles, rate: r.rate, detention: r.detention, driver: r.driver, driverCpm: r.driver_cpm || 0, driverOopExpenses: r.driver_oop_expenses || 0, isTeamLoad: r.is_team_load || false, driver2: r.driver2 || "", driver2Cpm: r.driver2_cpm || 0, deadheadMiles: r.deadhead_miles || 0, deadheadOrigin: r.deadhead_origin || "", truckId: r.truck_id, trailerId: r.trailer_id, status: r.status, lumperCost: r.lumper_cost, lumperPaidBy: r.lumper_paid_by, lumperReimbursed: r.lumper_reimbursed, lumperReimbursedAmount: r.lumper_reimbursed_amount, toll: r.toll, factoringStatus: r.factoring_status || "Not Submitted", brokerName: r.broker_name || "", brokerMC: r.broker_mc || "", isDirectClient: r.is_direct_client || false, clientId: r.client_id || "", invoiceId: r.invoice_id || "", driverPaid: r.driver_paid || false, driverPaidDate: r.driver_paid_date || "", driverPaidPeriod: r.driver_paid_period || "", archived: r.archived || false })));
       if (f.data) setFuelLog(f.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, gallons: r.gallons, pricePer: r.price_per, total: r.total, location: r.location, loadNum: r.load_num })));
       if (e.data) setExpenses(e.data.map(r => ({ id: r.id, date: r.date, truckId: r.truck_id, category: r.category, description: r.description, amount: r.amount })));
       if (m.data) setMaintenance(m.data.map(r => ({ id: r.id, entityId: r.entity_id, entityType: r.entity_type, category: r.category, description: r.description, date: r.date, milesAtService: r.miles_at_service, nextDueMiles: r.next_due_miles, nextDueDate: r.next_due_date, cost: r.cost, position: r.position, notes: r.notes })));
@@ -1397,6 +1400,7 @@ export default function App() {
       if (dr.data) setDriverProfiles(dr.data.map(r => ({ id: r.id, name: r.name, email: r.email, phone: r.phone, cpm: r.cpm, active: r.active, notes: r.notes, isTeamDriver: r.is_team_driver || false, teamPartner: r.team_partner || "" })));
       if (dc.data) setDirectClients(dc.data.map(r => ({ id: r.id, name: r.name, contactName: r.contact_name, email: r.email, phone: r.phone, address: r.address, paymentTerms: r.payment_terms, notes: r.notes, active: r.active })));
       if (inv.data) setInvoices(inv.data.map(r => ({ id: r.id, invoiceNumber: r.invoice_number, clientId: r.client_id, loadId: r.load_id, date: r.date, dueDate: r.due_date, amount: r.amount, status: r.status, notes: r.notes })));
+      if (pp.data) setPayPeriods(pp.data.map(r => ({ id: r.id, driver: r.driver, periodLabel: r.period_label, startDate: r.start_date, endDate: r.end_date, totalMiles: r.total_miles, totalPay: r.total_pay, loadIds: r.load_ids, createdAt: r.created_at })));
     } catch { showToast("Error loading data", "error"); }
     setLoading(false);
   };
@@ -1404,6 +1408,47 @@ export default function App() {
   useEffect(() => { if (session) fetchAll(); }, [session]);
   const closeModal = () => { setModal(null); setEditItem(null); };
   const switchTab = (newTab) => { setTab(newTab); };
+
+  // Mark driver loads as paid and save pay period
+  const markDriverPaid = async (driver, driverLoads, periodLabel) => {
+    if (!driverLoads.length) return;
+    const dates = driverLoads.map(l => l.date).sort();
+    const totalMiles = driverLoads.reduce((s, l) => { const mi = l.isTeamLoad ? Number(l.miles||0)/2 : Number(l.miles||0); const dh = l.isTeamLoad ? Number(l.deadheadMiles||0)/2 : Number(l.deadheadMiles||0); return s + mi + dh; }, 0);
+    const totalPay = driverLoads.reduce((s, l) => { const mi = l.isTeamLoad ? Number(l.miles||0)/2 : Number(l.miles||0); const dh = l.isTeamLoad ? Number(l.deadheadMiles||0)/2 : Number(l.deadheadMiles||0); return s + Number(l.driverCpm||0)*(mi+dh) + Number(l.driverOopExpenses||0); }, 0);
+    const paidDate = today();
+    // Save pay period record
+    await db.from("pay_periods").insert({ id: uid(), driver, period_label: periodLabel, start_date: dates[0], end_date: dates[dates.length-1], total_miles: totalMiles, total_pay: totalPay, load_ids: driverLoads.map(l=>l.id).join(",") });
+    // Mark each load as driver paid
+    for (const l of driverLoads) {
+      await db.from("loads").update({ driver_paid: true, driver_paid_date: paidDate, driver_paid_period: periodLabel }).eq("id", l.id);
+    }
+    await fetchAll();
+    showToast(`✅ ${driver} marked as paid — ${fmt$(totalPay)}`);
+  };
+
+  // Archive a load (move to done section)
+  const archiveLoad = async (id) => {
+    await db.from("loads").update({ archived: true }).eq("id", id);
+    await fetchAll();
+    showToast("Load archived ✓");
+  };
+
+  // Unarchive a load
+  const unarchiveLoad = async (id) => {
+    await db.from("loads").update({ archived: false }).eq("id", id);
+    await fetchAll();
+    showToast("Load restored ✓");
+  };
+
+  // Archive all factored/invoiced loads
+  const archiveAllDone = async () => {
+    const doneLoads = loads.filter(l => l.factoringStatus === "Advance Received" || l.factoringStatus === "Reserve Released" || (l.invoiceId && invoices.find(i => i.id === l.invoiceId && i.status === "Paid")));
+    for (const l of doneLoads) {
+      await db.from("loads").update({ archived: true }).eq("id", l.id);
+    }
+    await fetchAll();
+    showToast(`${doneLoads.length} loads archived ✓`);
+  };
   const saveDirectClient = async (f) => { if (!f.name) return; setSaving(true); const { error } = await db.from("direct_clients").upsert({ id: editItem?.id || uid(), name: f.name, contact_name: f.contactName || "", email: f.email || "", phone: f.phone || "", address: f.address || "", payment_terms: f.paymentTerms || "Net 2", notes: f.notes || "", active: f.active !== false }); if (error) showToast("Save failed", "error"); else { await fetchAll(); closeModal(); showToast(editItem ? "Client updated ✓" : "Client added ✓"); } setSaving(false); };
   const delDirectClient = async (id) => { if (!confirm("Delete this client?")) return; await db.from("direct_clients").delete().eq("id", id); await fetchAll(); showToast("Client deleted"); };
 
@@ -1629,17 +1674,19 @@ export default function App() {
     const allLoads = [...dl, ...dl2.map(l => ({ ...l, driverCpm: l.driver2Cpm, driver: name }))];
     return { name, loads: allLoads.length, rev, pay, mi, loadedMi, deadheadMi, det, cpm: profile?.cpm || dl[0]?.driverCpm || 0, allLoads };
   });
-  const getPaystubLoads = (driver) => {
+  const getPaystubLoads = (driver, includeAll = false) => {
     const now = new Date();
     const inPeriod = (d) => {
+      if (includeAll) return true;
       const date = new Date(d);
       if (paystubPeriod === "weekly") return (now - date) / 86400000 <= 7;
       if (paystubPeriod === "biweekly") return (now - date) / 86400000 <= 14;
       if (paystubPeriod === "monthly") return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
       return true;
     };
-    const primary = loads.filter(l => l.driver === driver && inPeriod(l.date));
-    const asDriver2 = loads.filter(l => l.isTeamLoad && l.driver2 === driver && inPeriod(l.date))
+    // Only show UNPAID loads unless includeAll
+    const primary = loads.filter(l => l.driver === driver && inPeriod(l.date) && (includeAll || !l.driverPaid));
+    const asDriver2 = loads.filter(l => l.isTeamLoad && l.driver2 === driver && inPeriod(l.date) && (includeAll || !l.driverPaid))
       .map(l => ({ ...l, driverCpm: l.driver2Cpm, _isDriver2: true }));
     return [...primary, ...asDriver2];
   };
@@ -1821,50 +1868,116 @@ export default function App() {
     </>
   );
 
-  const Loads = () => (
-    <>
-      <div style={S.ph}><div><h1 style={S.h1}>Load Management</h1></div><div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {rateConDraft && <button onClick={() => setModal("rateCon")} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Rate Con Draft</button>}
-        {loadDraft && !modal && <button onClick={() => { setEditItem(null); setModal("load"); }} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Load Draft</button>}
-        <button onClick={() => { setRateConDraft(null); setModal("rateCon"); }} style={{ background: "#eff6ff", color: "#2563eb", border: "1.5px solid #2563eb", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>🤖 Upload Rate Con</button>
-        <PrimaryBtn onClick={() => { setEditItem(null); setModal("load"); }}>+ Add Load</PrimaryBtn>
-      </div></div>
-      <TruckBar />
-      <div style={S.grid(5)}><StatCard label="In Transit" value={filtLoads.filter(l => l.status === "In Transit").length} accent="#d97706" icon="🚛" /><StatCard label="Pending" value={filtLoads.filter(l => l.status === "Pending").length} accent="#6b7280" icon="⏳" /><StatCard label="Delivered" value={filtLoads.filter(l => l.status === "Delivered").length} accent="#16a34a" icon="✅" /><StatCard label="Total Loaded Mi" value={fmtMi(filtLoads.reduce((s,l) => s + Number(l.miles||0), 0))} sub={`DH: ${fmtMi(filtLoads.reduce((s,l) => s + Number(l.deadheadMiles||0), 0))} mi`} accent="#2563eb" icon="🛣️" /><StatCard label="Total Rev" value={fmt$(totalRev)} accent="#16a34a" icon="💰" /></div>
-      <div style={S.tableWrap}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Load#", "Date", "Truck", "Trailer", "Origin → Dest", "Loaded Mi", "DH Mi", "Rate", "Driver", "Profit", "Factoring", "Status", ""].map(h => <TH key={h}>{h}</TH>)}</tr></thead><tbody>
-        {filtLoads.length === 0 && <tr><td colSpan={13} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No loads yet.</td></tr>}
-        {filtLoads.map(l => {
-          const g = Number(l.rate || 0) + Number(l.detention || 0);
-          const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
-          const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
-          const dp = Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driver2Cpm || 0) * (l.isTeamLoad ? (splitMi + splitDH) : 0);
-          const lumperNet = l.lumperPaidBy === "Out of Pocket" && l.lumperReimbursed !== "Yes" ? Number(l.lumperCost || 0) : 0;
-          const pr = g - dp - lumperNet - Number(l.toll || 0) - Number(l.driverOopExpenses || 0);
-          const truck = truckById(l.truckId);
-          const trailer = trailerById(l.trailerId);
-          return (<tr key={l.id} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
-            <TD color="#d97706" bold>{l.loadNum}{l.isTeamLoad && <span style={{ background: "#7c3aed20", color: "#7c3aed", border: "1px solid #7c3aed44", borderRadius: 6, padding: "1px 5px", fontSize: 9, fontWeight: 700, marginLeft: 4 }}>TEAM</span>}</TD>
-            <TD>{l.date}</TD>
-            <TD>{truck && <Badge label={truck.name} color={truck.color} />}</TD>
-            <TD>{trailer && <Badge label={trailer.name} color={trailer.color || "#16a34a"} />}</TD>
-            <TD>{l.origin?.split(",")[0]} → {l.dest?.split(",")[0]}</TD>
-            <TD mono>{fmtMi(l.miles)}</TD>
-            <TD mono color={Number(l.deadheadMiles || 0) > 0 ? "#7c3aed" : "#9ca3af"}>{Number(l.deadheadMiles || 0) > 0 ? fmtMi(l.deadheadMiles) : "—"}</TD>
-            <TD mono>{fmt$(l.rate)}</TD>
-            <TD><div>{l.driver}</div>{l.isTeamLoad && l.driver2 && <div style={{ color: "#7c3aed", fontSize: 11 }}>+ {l.driver2}</div>}</TD>
-            <TD mono color={pr >= 0 ? "#16a34a" : "#dc2626"} bold>{fmt$(pr)}</TD>
-            <TD><FactoringBadge s={l.factoringStatus || "Not Submitted"} /></TD>
-            <TD><StatusBadge s={l.status} /></TD>
-            <TD><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              <button style={S.btnFactor} onClick={() => { setFactoringLoad(l); setModal("factoringDetail"); }}>💼</button>
-              <button style={S.btnEdt} onClick={() => { setEditItem(l); setModal("load"); }}>Edit</button>
-              <button style={S.btnDel} onClick={() => delLoad(l.id)}>Del</button>
-            </div></TD>
-          </tr>);
-        })}
-      </tbody></table></div></div>
-    </>
-  );
+  const Loads = () => {
+    const [showArchived, setShowArchived] = useState(false);
+    const activeLoads = filtLoads.filter(l => !l.archived);
+    const archivedLoads = loads.filter(l => l.archived && (truckView === "FLEET" || l.truckId === truckView));
+    const doneLoads = activeLoads.filter(l => l.factoringStatus === "Advance Received" || l.factoringStatus === "Reserve Released" || (l.invoiceId && invoices.find(i => i.id === l.invoiceId && i.status === "Paid")));
+    const newLoads = activeLoads.filter(l => !doneLoads.find(d => d.id === l.id));
+
+    const LoadRow = ({ l, dim }) => {
+      const g = Number(l.rate || 0) + Number(l.detention || 0);
+      const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
+      const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
+      const dp = Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driver2Cpm || 0) * (l.isTeamLoad ? (splitMi + splitDH) : 0);
+      const lumperNet = l.lumperPaidBy === "Out of Pocket" && l.lumperReimbursed !== "Yes" ? Number(l.lumperCost || 0) : 0;
+      const pr = g - dp - lumperNet - Number(l.toll || 0) - Number(l.driverOopExpenses || 0);
+      const truck = truckById(l.truckId);
+      const trailer = trailerById(l.trailerId);
+      const isPaid = l.driverPaid;
+      return (
+        <tr key={l.id} style={{ opacity: dim ? 0.7 : 1 }} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = dim ? "#fafaf9" : "#fff"}>
+          <TD color="#d97706" bold>
+            {l.loadNum}
+            {l.isTeamLoad && <span style={{ background: "#7c3aed20", color: "#7c3aed", border: "1px solid #7c3aed44", borderRadius: 6, padding: "1px 5px", fontSize: 9, fontWeight: 700, marginLeft: 4 }}>TEAM</span>}
+            {isPaid && <span style={{ background: "#16a34a20", color: "#16a34a", border: "1px solid #16a34a44", borderRadius: 6, padding: "1px 5px", fontSize: 9, fontWeight: 700, marginLeft: 4 }}>PAID</span>}
+          </TD>
+          <TD>{l.date}</TD>
+          <TD>{truck && <Badge label={truck.name} color={truck.color} />}</TD>
+          <TD>{trailer && <Badge label={trailer.name} color={trailer.color || "#16a34a"} />}</TD>
+          <TD>{l.origin?.split(",")[0]} → {l.dest?.split(",")[0]}</TD>
+          <TD mono>{fmtMi(l.miles)}</TD>
+          <TD mono color={Number(l.deadheadMiles||0)>0?"#7c3aed":"#9ca3af"}>{Number(l.deadheadMiles||0)>0?fmtMi(l.deadheadMiles):"—"}</TD>
+          <TD mono>{fmt$(l.rate)}</TD>
+          <TD><div>{l.driver}</div>{l.isTeamLoad && l.driver2 && <div style={{ color: "#7c3aed", fontSize: 11 }}>+ {l.driver2}</div>}</TD>
+          <TD mono color={pr>=0?"#16a34a":"#dc2626"} bold>{fmt$(pr)}</TD>
+          <TD><FactoringBadge s={l.factoringStatus||"Not Submitted"} /></TD>
+          <TD><StatusBadge s={l.status} /></TD>
+          <TD><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            <button style={S.btnFactor} onClick={() => { setFactoringLoad(l); setModal("factoringDetail"); }}>💼</button>
+            <button style={S.btnEdt} onClick={() => { setEditItem(l); setModal("load"); }}>Edit</button>
+            {!l.archived && <button style={{ ...S.btnEdt, background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe" }} onClick={() => archiveLoad(l.id)}>Archive</button>}
+            {l.archived && <button style={{ ...S.btnEdt, background: "#f0fdf4", color: "#16a34a" }} onClick={() => unarchiveLoad(l.id)}>Restore</button>}
+            <button style={S.btnDel} onClick={() => delLoad(l.id)}>Del</button>
+          </div></TD>
+        </tr>
+      );
+    };
+
+    const TableHeaders = () => (
+      <thead><tr>{["Load#","Date","Truck","Trailer","Origin → Dest","Loaded Mi","DH Mi","Rate","Driver","Profit","Factoring","Status",""].map(h=><TH key={h}>{h}</TH>)}</tr></thead>
+    );
+
+    return (
+      <>
+        <div style={S.ph}><div><h1 style={S.h1}>Load Management</h1></div><div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {rateConDraft && <button onClick={() => setModal("rateCon")} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Rate Con Draft</button>}
+          {loadDraft && !modal && <button onClick={() => { setEditItem(null); setModal("load"); }} style={{ background: "#fffbeb", color: "#d97706", border: "1.5px solid #d97706", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>📋 Resume Load Draft</button>}
+          <button onClick={() => { setRateConDraft(null); setModal("rateCon"); }} style={{ background: "#eff6ff", color: "#2563eb", border: "1.5px solid #2563eb", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>🤖 Upload Rate Con</button>
+          <PrimaryBtn onClick={() => { setEditItem(null); setModal("load"); }}>+ Add Load</PrimaryBtn>
+        </div></div>
+        <TruckBar />
+        <div style={S.grid(5)}>
+          <StatCard label="Active Loads" value={newLoads.length} accent="#d97706" icon="🚛" />
+          <StatCard label="Done & Factored" value={doneLoads.length} accent="#16a34a" icon="✅" />
+          <StatCard label="Archived" value={archivedLoads.length} accent="#6b7280" icon="📦" />
+          <StatCard label="Total Loaded Mi" value={fmtMi(activeLoads.reduce((s,l)=>s+Number(l.miles||0),0))} sub={`DH: ${fmtMi(activeLoads.reduce((s,l)=>s+Number(l.deadheadMiles||0),0))} mi`} accent="#2563eb" icon="🛣️" />
+          <StatCard label="Total Rev" value={fmt$(totalRev)} accent="#16a34a" icon="💰" />
+        </div>
+
+        {/* ACTIVE LOADS */}
+        {newLoads.length > 0 && (
+          <div style={S.tableWrap}>
+            <div style={{ padding: "12px 20px", borderBottom: "1px solid #e5e7eb", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 800, color: "#111", fontSize: 14 }}>🚛 Active Loads <span style={{ background: "#d97706", color: "#fff", borderRadius: 99, fontSize: 11, padding: "2px 8px", marginLeft: 6 }}>{newLoads.length}</span></div>
+              {doneLoads.length > 0 && <button onClick={archiveAllDone} style={{ background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe", borderRadius: 7, padding: "6px 12px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>📦 Archive All Done ({doneLoads.length})</button>}
+            </div>
+            <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><TableHeaders /><tbody>
+              {newLoads.map(l => <LoadRow key={l.id} l={l} dim={false} />)}
+            </tbody></table></div>
+          </div>
+        )}
+
+        {/* DONE / FACTORED LOADS */}
+        {doneLoads.length > 0 && (
+          <div style={{ ...S.tableWrap, border: "1.5px solid #bbf7d0" }}>
+            <div style={{ padding: "12px 20px", borderBottom: "1px solid #bbf7d0", background: "#f0fdf4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 800, color: "#16a34a", fontSize: 14 }}>✅ Done & Factored <span style={{ background: "#16a34a", color: "#fff", borderRadius: 99, fontSize: 11, padding: "2px 8px", marginLeft: 6 }}>{doneLoads.length}</span></div>
+              <div style={{ color: "#6b7280", fontSize: 12 }}>Advance received or invoice paid — ready to archive</div>
+            </div>
+            <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><TableHeaders /><tbody>
+              {doneLoads.map(l => <LoadRow key={l.id} l={l} dim={true} />)}
+            </tbody></table></div>
+          </div>
+        )}
+
+        {/* ARCHIVED LOADS */}
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => setShowArchived(!showArchived)} style={{ background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 9, padding: "10px 18px", cursor: "pointer", fontWeight: 700, fontSize: 13, color: "#6b7280", width: "100%", textAlign: "left" }}>
+            📦 Archived Loads ({archivedLoads.length}) {showArchived ? "▲ Hide" : "▼ Show"}
+          </button>
+          {showArchived && archivedLoads.length > 0 && (
+            <div style={{ ...S.tableWrap, marginTop: 8, border: "1px solid #e5e7eb", opacity: 0.85 }}>
+              <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><TableHeaders /><tbody>
+                {archivedLoads.map(l => <LoadRow key={l.id} l={l} dim={true} />)}
+              </tbody></table></div>
+            </div>
+          )}
+          {showArchived && archivedLoads.length === 0 && <div style={{ padding: "20px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>No archived loads yet</div>}
+        </div>
+      </>
+    );
+  };
 
   const Fuel = () => (
     <>
@@ -2026,17 +2139,22 @@ export default function App() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 18 }}>
         {driverStats.map(d => {
-          const periodLoads = getPaystubLoads(d.name);
-          const periodPay = periodLoads.reduce((s, l) => {
+          const unpaidLoads = getPaystubLoads(d.name);
+          const periodPay = unpaidLoads.reduce((s, l) => {
             const splitMi = l.isTeamLoad ? Number(l.miles || 0) / 2 : Number(l.miles || 0);
             const splitDH = l.isTeamLoad ? Number(l.deadheadMiles || 0) / 2 : Number(l.deadheadMiles || 0);
             return s + Number(l.driverCpm || 0) * (splitMi + splitDH) + Number(l.driverOopExpenses || 0);
           }, 0);
+          const driverPayPeriods = payPeriods.filter(p => p.driver === d.name);
           return (
             <div key={d.name} style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: 22, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
                 <div style={{ width: 52, height: 52, borderRadius: "50%", background: "linear-gradient(135deg,#d97706,#b45309)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 900, color: "#fff" }}>{d.name.split(" ").map(n => n[0]).join("").slice(0, 2)}</div>
-                <div><div style={{ color: "#111827", fontWeight: 800, fontSize: 16 }}>{d.name}</div><div style={{ color: "#6b7280", fontSize: 12 }}>${fmtN(d.cpm, 2)}/mi · {d.loads} loads</div></div>
+                <div>
+                  <div style={{ color: "#111827", fontWeight: 800, fontSize: 16 }}>{d.name}</div>
+                  <div style={{ color: "#6b7280", fontSize: 12 }}>${fmtN(d.cpm, 2)}/mi · {d.loads} loads</div>
+                  {driverPayPeriods.length > 0 && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ {driverPayPeriods.length} pay periods on record</div>}
+                </div>
               </div>
               {[{ l: "All-Time Revenue", v: fmt$(d.rev), c: "#16a34a" }, { l: "All-Time Pay", v: fmt$(d.pay), c: "#d97706" }, { l: "Loaded Miles", v: fmtMi(d.loadedMi) + " mi", c: "#2563eb" }, { l: "Deadhead Miles", v: fmtMi(d.deadheadMi) + " mi", c: "#7c3aed" }, { l: "Detention", v: fmt$(d.det), c: "#d97706" }].map(r => (
                 <div key={r.l} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
@@ -2044,14 +2162,41 @@ export default function App() {
                   <span style={{ color: r.c, fontFamily: "monospace", fontWeight: 700 }}>{r.v}</span>
                 </div>
               ))}
-              <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "12px 14px", margin: "14px 0" }}>
-                <div style={{ color: "#92400e", fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>{paystubPeriod.toUpperCase()} PAY ({periodLoads.length} loads)</div>
-                <div style={{ color: "#d97706", fontFamily: "monospace", fontWeight: 900, fontSize: 24 }}>{fmt$(periodPay)}</div>
+              {/* Unpaid loads section */}
+              <div style={{ background: unpaidLoads.length > 0 ? "#fffbeb" : "#f0fdf4", border: `1.5px solid ${unpaidLoads.length > 0 ? "#fde68a" : "#bbf7d0"}`, borderRadius: 10, padding: "12px 14px", margin: "14px 0" }}>
+                <div style={{ color: unpaidLoads.length > 0 ? "#92400e" : "#166534", fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                  {unpaidLoads.length > 0 ? `⏳ UNPAID (${unpaidLoads.length} loads)` : "✅ ALL LOADS PAID"}
+                </div>
+                <div style={{ color: unpaidLoads.length > 0 ? "#d97706" : "#16a34a", fontFamily: "monospace", fontWeight: 900, fontSize: 24 }}>{fmt$(periodPay)}</div>
+                {unpaidLoads.length > 0 && <div style={{ color: "#9ca3af", fontSize: 11, marginTop: 4 }}>Print paystub then mark as paid</div>}
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => printPaystub(d.name, periodLoads, paystubPeriod)} style={{ ...S.btnPrint, flex: 1, padding: "9px", textAlign: "center", fontSize: 13 }}>🖨️ Print Paystub</button>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => { printPaystub(d.name, unpaidLoads.length > 0 ? unpaidLoads : getPaystubLoads(d.name, true), paystubPeriod); }} style={{ ...S.btnPrint, flex: 1, padding: "9px", textAlign: "center", fontSize: 13 }}>🖨️ Print Paystub</button>
                 <button onClick={() => { setPaystubDriver(d.name); setModal("driverLoads"); }} style={{ ...S.btnEdt, flex: 1, padding: "9px", textAlign: "center", fontSize: 13 }}>📋 View Runs</button>
               </div>
+              {unpaidLoads.length > 0 && (
+                <button onClick={async () => {
+                  const periodLabel = `${paystubPeriod} ending ${today()}`;
+                  await markDriverPaid(d.name, unpaidLoads, periodLabel);
+                }} style={{ background: "#16a34a", color: "#fff", border: "none", borderRadius: 9, padding: "10px", fontWeight: 700, cursor: "pointer", fontSize: 13, width: "100%", marginTop: 8 }}>
+                  ✅ Mark {unpaidLoads.length} Loads as Paid — {fmt$(periodPay)}
+                </button>
+              )}
+
+              {/* Pay period history */}
+              {driverPayPeriods.length > 0 && (
+                <div style={{ marginTop: 12, borderTop: "1px solid #f3f4f6", paddingTop: 12 }}>
+                  <div style={{ color: "#6b7280", fontSize: 10, fontWeight: 700, marginBottom: 8 }}>PAY HISTORY</div>
+                  {driverPayPeriods.slice(0, 3).map(p => (
+                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12, color: "#374151" }}>
+                      <span>{p.periodLabel}</span>
+                      <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#16a34a" }}>{fmt$(p.totalPay)}</span>
+                    </div>
+                  ))}
+                  {driverPayPeriods.length > 3 && <div style={{ color: "#9ca3af", fontSize: 11 }}>+{driverPayPeriods.length - 3} more periods</div>}
+                </div>
+              )}
             </div>
           );
         })}
@@ -2151,8 +2296,20 @@ export default function App() {
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:12px;color:#1e40af"><strong>Payment:</strong> ACH within ${client?.paymentTerms||"2"} business days · (402) 591-0847 · bhandarilogistics78@gmail.com</div>
         <div class="footer">Page 1 of ${1} · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
       </div>
-      ${allRateSheets.map((rs,i)=>`<div class="divider">— RATE CONFIRMATION${allRateSheets.length>1?" "+(i+1):""} —</div><div class="page"><img src="${rs.data}" class="doc-img"/><div class="footer">Rate Confirmation · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
-      ${allBols.map((b,i)=>`<div class="divider">— BILL OF LADING${allBols.length>1?" "+(i+1):""} —</div><div class="page"><img src="${b.data}" class="doc-img"/><div class="footer">Bill of Lading · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
+      ${allRateSheets.map((rs,i)=>{
+        const isPdf = rs.data.includes('application/pdf') || rs.name?.toLowerCase().endsWith('.pdf');
+        const docHtml = isPdf
+          ? `<embed src="${rs.data}" type="application/pdf" width="100%" height="1000px" style="border:none"/>`
+          : `<img src="${rs.data}" style="width:100%;display:block"/>`;
+        return `<div class="divider">— RATE CONFIRMATION${allRateSheets.length>1?" "+(i+1):""} —</div><div class="page">${docHtml}<div class="footer">Rate Confirmation · Invoice #${inv.invoiceNumber}</div></div>`;
+      }).join("")}
+      ${allBols.map((b,i)=>{
+        const isPdf = b.data.includes('application/pdf') || b.name?.toLowerCase().endsWith('.pdf');
+        const docHtml = isPdf
+          ? `<embed src="${b.data}" type="application/pdf" width="100%" height="1000px" style="border:none"/>`
+          : `<img src="${b.data}" style="width:100%;display:block"/>`;
+        return `<div class="divider">— BILL OF LADING${allBols.length>1?" "+(i+1):""} —</div><div class="page">${docHtml}<div class="footer">Bill of Lading · Invoice #${inv.invoiceNumber}</div></div>`;
+      }).join("")}
       <script>window.onload=()=>window.print();</script></body></html>`);
       w.document.close();
     };
