@@ -1354,6 +1354,13 @@ export default function App() {
   const [expenseDraft, setExpenseDraft] = useState(null);
   const [fuelDraft, setFuelDraft] = useState(null);
   const [invoiceDraft, setInvoiceDraft] = useState(null);
+  const [invFormData, setInvFormData] = useState({ clientId: "", loadId: "", date: today(), dueDate: "", amount: "", notes: "", status: "Sent" });
+  const [rateSheets, setRateSheets] = useState([]);
+  const [bols, setBols] = useState([]);
+  const [extraCharges, setExtraCharges] = useState([]);
+  const [showInvForm, setShowInvForm] = useState(false);
+  const [showClientForm, setShowClientForm] = useState(false);
+  const [invScanning, setInvScanning] = useState(false);
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2053,268 +2060,267 @@ export default function App() {
   );
 
   const Invoices = () => {
-    const [showClientForm, setShowClientForm] = useState(false);
-    const [clientF, setClientF] = useState({ name: "", contactName: "", email: "", phone: "", address: "", paymentTerms: "Net 2", notes: "" });
-    const [showInvForm, setShowInvForm] = useState(false);
-    const [invF, setInvF] = useState({ clientId: directClients[0]?.id || "", loadId: "", date: today(), dueDate: "", amount: "", notes: "", status: "Sent" });
-    const [rateSheetData, setRateSheetData] = useState(null);
-    const [bolData, setBolData] = useState(null);
-    const [rateSheetName, setRateSheetName] = useState("");
-    const [bolName, setBolName] = useState("");
-    const rateSheetRef = useRef();
-    const bolRef = useRef();
     const nextInvNum = invoices.length > 0 ? Math.max(...invoices.map(i => i.invoiceNumber || 0)) + 1 : 44;
     const totalInvoiced = invoices.reduce((s, i) => s + Number(i.amount || 0), 0);
     const totalPaid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.amount || 0), 0);
     const totalPending = invoices.filter(i => i.status !== "Paid").reduce((s, i) => s + Number(i.amount || 0), 0);
+    const rateSheetRef = useRef();
+    const bolRef = useRef();
+    const totalExtra = extraCharges.reduce((s, c) => s + Number(c.amount || 0), 0);
+    const invoiceTotal = Number(invFormData.amount || 0) + totalExtra;
+    const addExtraCharge = () => setExtraCharges(p => [...p, { id: uid(), desc: "", amount: "" }]);
+    const updateCharge = (id, field, val) => setExtraCharges(p => p.map(c => c.id === id ? { ...c, [field]: val } : c));
+    const removeCharge = (id) => setExtraCharges(p => p.filter(c => c.id !== id));
+    const [clientF, setClientF] = useState({ name: "", contactName: "", email: "", phone: "", address: "", paymentTerms: "Net 2", notes: "" });
 
-    const [scanning, setScanning] = useState(false);
-
-    const handleFileUpload = async (e, type) => {
-      const file = e.target.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const base64 = ev.target.result;
-        if (type === "rateSheet") { setRateSheetData(base64); setRateSheetName(file.name); }
-        else { setBolData(base64); setBolName(file.name); }
-
-        // AI auto-detect from uploaded document
-        setScanning(true);
-        try {
-          const mediaType = file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-          const result = await parseWithAI(base64.split(",")[1], mediaType,
-            `You are reading a trucking document (rate confirmation or bill of lading). Extract billing info. Return ONLY valid JSON:\n{"loadNum":"load or PO number","broker":"company name that hired the carrier (broker or shipper)","amount":total dollar amount as number or null,"pickupDate":"YYYY-MM-DD or null","origin":"pickup city ST","dest":"delivery city ST"}\nReturn ONLY the JSON.`
-          );
-          if (result) {
-            // Try to find matching load
-            const matchLoad = result.loadNum ? loads.find(l => l.loadNum === result.loadNum || l.loadNum?.includes(result.loadNum) || result.loadNum?.includes(l.loadNum)) : null;
-            // Try to find matching client
-            const matchClient = result.broker ? directClients.find(c => c.name.toLowerCase().includes(result.broker?.toLowerCase()) || result.broker?.toLowerCase().includes(c.name.toLowerCase())) : null;
-            setInvF(p => ({
-              ...p,
-              loadId: matchLoad ? matchLoad.id : p.loadId,
-              clientId: matchClient ? matchClient.id : p.clientId,
-              amount: matchLoad ? String(Number(matchLoad.rate||0)+Number(matchLoad.detention||0)) : (result.amount ? String(result.amount) : p.amount),
-              notes: result.loadNum || p.notes,
-              date: result.pickupDate || p.date,
-            }));
-            if (matchClient || matchLoad) {
-              showToast(`✅ Auto-detected: ${matchClient?.name || ""}${matchLoad ? ` · Load ${matchLoad.loadNum}` : ""}`);
+    const handleFileAdd = async (e, type) => {
+      const files = Array.from(e.target.files); if (!files.length) return;
+      setInvScanning(true);
+      for (const file of files) {
+        const base64 = await new Promise(res => { const r = new FileReader(); r.onload = ev => res(ev.target.result); r.readAsDataURL(file); });
+        if (type === "rate") setRateSheets(p => [...p, { name: file.name, data: base64 }]);
+        else setBols(p => [...p, { name: file.name, data: base64 }]);
+        if (files.indexOf(file) === 0) {
+          try {
+            const mediaType = file.type || "application/pdf";
+            const result = await parseWithAI(base64.split(",")[1], mediaType, `Extract billing info from this trucking document. Return ONLY JSON: {"loadNum":"PO or load number","broker":"company that hired the carrier","amount":dollar amount or null,"pickupDate":"YYYY-MM-DD or null"}`);
+            if (result) {
+              const matchLoad = result.loadNum ? loads.find(l => l.loadNum === result.loadNum || l.loadNum?.includes(result.loadNum) || result.loadNum?.includes(l.loadNum)) : null;
+              const matchClient = result.broker ? directClients.find(c => c.name.toLowerCase().includes(result.broker?.toLowerCase()) || result.broker?.toLowerCase().includes(c.name.toLowerCase())) : null;
+              setInvFormData(p => ({ ...p, loadId: matchLoad ? matchLoad.id : p.loadId, clientId: matchClient ? matchClient.id : p.clientId, amount: matchLoad ? String(Number(matchLoad.rate||0)+Number(matchLoad.detention||0)) : (result.amount ? String(result.amount) : p.amount), notes: result.loadNum || p.notes, date: result.pickupDate || p.date }));
+              if (matchClient || matchLoad) showToast(`✅ Auto-detected: ${matchClient?.name || ""}${matchLoad ? ` · Load ${matchLoad.loadNum}` : ""}`);
             }
-          }
-        } catch {}
-        setScanning(false);
-      };
-      reader.readAsDataURL(file);
+          } catch {}
+        }
+      }
+      setInvScanning(false); e.target.value = "";
     };
 
     const generatePackage = (inv) => {
       const client = directClients.find(c => c.id === inv.clientId);
       const load = loads.find(l => l.id === inv.loadId);
+      const charges = inv.extraCharges || [];
+      const totalAmt = Number(inv.amount || 0);
+      const allRateSheets = inv.rateSheets || rateSheets;
+      const allBols = inv.bols || bols;
       const w = window.open("", "_blank");
       w.document.write(`<!DOCTYPE html><html><head><title>Invoice Package #${inv.invoiceNumber}</title><style>
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:Arial,sans-serif;color:#111;font-size:13px}
+        *{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#111;font-size:13px}
         .no-print{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin:20px;display:flex;justify-content:space-between;align-items:center}
         .no-print button{background:#16a34a;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-weight:700;cursor:pointer;font-size:14px}
-        .page{max-width:800px;margin:30px auto;padding:30px;page-break-after:always}
-        .page:last-child{page-break-after:auto}
-        .divider{text-align:center;padding:20px;color:#9ca3af;font-size:11px;font-weight:700;letter-spacing:2px;border-top:2px dashed #e5e7eb;border-bottom:2px dashed #e5e7eb;margin:0 20px}
+        .page{max-width:800px;margin:20px auto;padding:30px;page-break-after:always}.page:last-child{page-break-after:auto}
+        .divider{text-align:center;padding:14px;color:#9ca3af;font-size:11px;font-weight:700;letter-spacing:2px;border-top:2px dashed #e5e7eb;border-bottom:2px dashed #e5e7eb;margin:0 20px;background:#f9fafb}
         .header{border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:20px;display:flex;justify-content:space-between}
-        .co-name{font-size:22px;font-weight:900}
-        .inv-title{text-align:right}
-        .inv-title h1{font-size:40px;font-weight:900;color:#111;letter-spacing:3px}
-        .inv-title .num{font-size:22px;color:#d97706;font-weight:700}
-        .addresses{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:24px}
-        .addr-box h3{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#6b7280;margin-bottom:8px}
-        .addr-box p{font-size:14px;line-height:1.8}
-        .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:24px}
-        .meta-item label{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;display:block;margin-bottom:4px}
-        .meta-item span{font-size:14px;font-weight:700}
-        table{width:100%;border-collapse:collapse;margin-bottom:24px}
-        thead th{background:#1e293b;color:#fff;padding:12px 16px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase}
-        thead th:last-child{text-align:right}
-        tbody td{padding:14px 16px;border-bottom:1px solid #e5e7eb;font-size:14px}
-        tbody td:last-child{text-align:right;font-weight:700}
-        .totals{margin-left:auto;width:320px}
-        .total-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #e5e7eb;font-size:14px}
-        .total-row.final{font-size:18px;font-weight:900;border-top:3px solid #111;border-bottom:none;padding-top:14px;margin-top:4px}
+        table{width:100%;border-collapse:collapse;margin-bottom:20px}
+        th{background:#1e293b;color:#fff;padding:11px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase}
+        th.r,td.r{text-align:right}td{padding:13px 14px;border-bottom:1px solid #e5e7eb;font-size:13px}
+        .totals{margin-left:auto;width:300px}.tot-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:14px}
+        .tot-row.final{font-size:19px;font-weight:900;border-top:3px solid #111;border-bottom:none;padding-top:12px}
         .balance{background:#d97706;color:#fff;border-radius:10px;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-top:14px}
-        .balance .lbl{font-size:14px;font-weight:700;letter-spacing:1px}
-        .balance .amt{font-size:30px;font-weight:900;font-family:monospace}
-        .doc-image{width:100%;max-width:800px;margin:0 auto;display:block}
-        .footer{text-align:center;color:#9ca3af;font-size:11px;padding-top:16px;border-top:1px solid #e5e7eb;margin-top:24px}
+        .doc-img{width:100%;display:block}.footer{text-align:center;color:#9ca3af;font-size:11px;padding-top:14px;border-top:1px solid #e5e7eb;margin-top:20px}
         @media print{.no-print{display:none}.page{margin:0;padding:20px}}
       </style></head><body>
-      <div class="no-print">
-        <span style="font-weight:700;color:#16a34a">📦 Invoice Package #${inv.invoiceNumber} — ${client?.name || ""} — Ready to send!</span>
-        <button onclick="window.print()">🖨️ Print / Save as PDF</button>
-      </div>
-
-      <!-- PAGE 1: INVOICE -->
+      <div class="no-print"><span style="font-weight:700;color:#16a34a">📦 Invoice Package #${inv.invoiceNumber} — ${client?.name || ""} — Ready!</span><button onclick="window.print()">🖨️ Print / Save PDF</button></div>
       <div class="page">
         <div class="header">
-          <div>
-            <div class="co-name">⛟ BHANDARI LOGISTICS LLC</div>
-            <div style="color:#6b7280;font-size:12px;margin-top:4px">7615 N 90TH ST · OMAHA, NE 68122<br>Tel: (402) 591-0847 · bhandarilogistics78@gmail.com<br>MC# 1166353</div>
-          </div>
-          <div class="inv-title">
-            <h1>INVOICE</h1>
-            <div class="num"># ${inv.invoiceNumber}</div>
-          </div>
+          <div><div style="font-size:22px;font-weight:900">⛟ BHANDARI LOGISTICS LLC</div><div style="color:#6b7280;font-size:12px;margin-top:4px">7615 N 90TH ST · OMAHA, NE 68122 · Tel: (402) 591-0847 · bhandarilogistics78@gmail.com · MC# 1166353</div></div>
+          <div style="text-align:right"><div style="font-size:42px;font-weight:900;letter-spacing:3px">INVOICE</div><div style="font-size:22px;color:#d97706;font-weight:700"># ${inv.invoiceNumber}</div></div>
         </div>
-
-        <div class="meta">
-          <div class="meta-item"><label>Invoice Date</label><span>${inv.date}</span></div>
-          <div class="meta-item"><label>Due Date</label><span>${inv.dueDate || "Upon Receipt"}</span></div>
-          <div class="meta-item"><label>PO Number</label><span>${load?.loadNum || inv.notes || "—"}</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;background:#f9fafb;border-radius:8px;padding:14px;margin-bottom:20px">
+          <div><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-bottom:3px">Invoice Date</div><div style="font-size:14px;font-weight:700">${inv.date}</div></div>
+          <div><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-bottom:3px">Due Date</div><div style="font-size:14px;font-weight:700">${inv.dueDate||"Upon Receipt"}</div></div>
+          <div><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-bottom:3px">PO / Load #</div><div style="font-size:14px;font-weight:700">${load?.loadNum||inv.notes||"—"}</div></div>
         </div>
-
-        <div class="addresses">
-          <div class="addr-box">
-            <h3>From</h3>
-            <p><strong>Bhandari Logistics LLC</strong><br>7615 N 90TH ST<br>Omaha, NE 68122<br>MC# 1166353</p>
-          </div>
-          <div class="addr-box">
-            <h3>Bill To</h3>
-            <p><strong>${client?.name || "—"}</strong><br>${client?.address || ""}</p>
-          </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:20px">
+          <div><div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">From</div><p style="font-size:14px;line-height:1.8"><strong>Bhandari Logistics LLC</strong><br>7615 N 90TH ST<br>Omaha, NE 68122<br>MC# 1166353</p></div>
+          <div><div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">Bill To</div><p style="font-size:14px;line-height:1.8"><strong>${client?.name||"—"}</strong><br>${client?.address||""}</p></div>
         </div>
-
         <table>
-          <thead><tr><th>Item</th><th>Quantity</th><th>Rate</th><th style="text-align:right">Amount</th></tr></thead>
+          <thead><tr><th>Description</th><th>Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
           <tbody>
-            <tr>
-              <td><strong>LOAD NUMBER ${load?.loadNum || inv.notes || "—"}</strong>${load ? `<br><span style="color:#6b7280;font-size:12px">${load.origin || ""} → ${load.dest || ""} · Driver: ${load.driver || "—"}</span>` : ""}</td>
-              <td>1</td>
-              <td>$${fmtN(Number(inv.amount),2)}</td>
-              <td>$${fmtN(Number(inv.amount),2)}</td>
-            </tr>
-            ${load?.detention > 0 ? `<tr><td>Detention</td><td>1</td><td>$${fmtN(Number(load.detention),2)}</td><td>$${fmtN(Number(load.detention),2)}</td></tr>` : ""}
+            <tr><td><strong>LOAD NUMBER ${load?.loadNum||inv.notes||"—"}</strong>${load?`<br><span style="color:#6b7280;font-size:12px">${load.origin||""} → ${load.dest||""} · Driver: ${load.driver||"—"}</span>`:""}</td><td>1</td><td class="r">$${fmtN(Number(inv.baseAmount||inv.amount),2)}</td><td class="r">$${fmtN(Number(inv.baseAmount||inv.amount),2)}</td></tr>
+            ${charges.filter(c=>c.desc&&c.amount).map(c=>`<tr><td>${c.desc}</td><td>1</td><td class="r">$${fmtN(Number(c.amount),2)}</td><td class="r">$${fmtN(Number(c.amount),2)}</td></tr>`).join("")}
           </tbody>
         </table>
-
         <div class="totals">
-          <div class="total-row"><span>Subtotal:</span><span>$${fmtN(Number(inv.amount),2)}</span></div>
-          <div class="total-row"><span>Tax (0%):</span><span>$0.00</span></div>
-          <div class="total-row final"><span>Total:</span><span>$${fmtN(Number(inv.amount),2)}</span></div>
+          <div class="tot-row"><span>Subtotal:</span><span>$${fmtN(totalAmt,2)}</span></div>
+          <div class="tot-row"><span>Tax (0%):</span><span>$0.00</span></div>
+          <div class="tot-row final"><span>Total:</span><span>$${fmtN(totalAmt,2)}</span></div>
         </div>
-        <div class="balance">
-          <div class="lbl">BALANCE DUE</div>
-          <div class="amt">$${fmtN(Number(inv.status === "Paid" ? 0 : inv.amount),2)}</div>
-        </div>
-
-        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin-top:20px;font-size:12px;color:#1e40af">
-          <strong>Payment Instructions:</strong> Please remit payment via ACH within ${client?.paymentTerms || "2"} business days of invoice receipt.<br>
-          Questions? Contact Bhandari Logistics LLC · (402) 591-0847 · bhandarilogistics78@gmail.com
-        </div>
-
-        <div class="footer">Page 1 of ${rateSheetData && bolData ? 3 : rateSheetData || bolData ? 2 : 1} · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
+        <div class="balance"><div style="font-size:14px;font-weight:700">BALANCE DUE</div><div style="font-size:32px;font-weight:900;font-family:monospace">$${fmtN(Number(inv.status==="Paid"?0:totalAmt),2)}</div></div>
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:12px;color:#1e40af"><strong>Payment:</strong> ACH within ${client?.paymentTerms||"2"} business days · (402) 591-0847 · bhandarilogistics78@gmail.com</div>
+        <div class="footer">Page 1 of ${1} · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
       </div>
-
-      ${rateSheetData ? `
-      <div class="divider">— RATE CONFIRMATION / LOAD TENDER —</div>
-      <div class="page">
-        <img src="${rateSheetData}" class="doc-image" alt="Rate Sheet" />
-        <div class="footer">Rate Confirmation · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
-      </div>` : ""}
-
-      ${bolData ? `
-      <div class="divider">— BILL OF LADING —</div>
-      <div class="page">
-        <img src="${bolData}" class="doc-image" alt="Bill of Lading" />
-        <div class="footer">Bill of Lading · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
-      </div>` : ""}
-
-      <script>window.onload=()=>window.print();</script>
-      </body></html>`);
+      ${allRateSheets.map((rs,i)=>`<div class="divider">— RATE CONFIRMATION${allRateSheets.length>1?" "+(i+1):""} —</div><div class="page"><img src="${rs.data}" class="doc-img"/><div class="footer">Rate Confirmation · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
+      ${allBols.map((b,i)=>`<div class="divider">— BILL OF LADING${allBols.length>1?" "+(i+1):""} —</div><div class="page"><img src="${b.data}" class="doc-img"/><div class="footer">Bill of Lading · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
+      <script>window.onload=()=>window.print();</script></body></html>`);
       w.document.close();
     };
 
     return (
       <>
         <div style={S.ph}>
-          <div><h1 style={S.h1}>🧾 Invoices</h1><div style={{ color: "#6b7280", fontSize: 12 }}>Direct client billing — Prime International & others</div></div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setShowClientForm(true)} style={{ background: "#f5f3ff", color: "#7c3aed", border: "1.5px solid #7c3aed", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Add Client</button>
-            <PrimaryBtn onClick={() => { setInvF({ clientId: directClients[0]?.id || "", loadId: "", date: today(), dueDate: "", amount: "", notes: "", status: "Sent" }); setRateSheetData(null); setBolData(null); setRateSheetName(""); setBolName(""); setShowInvForm(true); }}>+ New Invoice</PrimaryBtn>
+          <div><h1 style={S.h1}>🧾 Invoices</h1><div style={{color:"#6b7280",fontSize:12}}>Direct client billing — Prime International & others</div></div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {showInvForm && <div style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #d97706",borderRadius:8,padding:"8px 14px",fontWeight:700,fontSize:12}}>📋 Draft in progress</div>}
+            <button onClick={() => setShowClientForm(true)} style={{background:"#f5f3ff",color:"#7c3aed",border:"1.5px solid #7c3aed",borderRadius:9,padding:"10px 16px",fontWeight:700,cursor:"pointer",fontSize:13}}>+ Add Client</button>
+            <PrimaryBtn onClick={() => { if(!showInvForm){setInvFormData({clientId:directClients[0]?.id||"",loadId:"",date:today(),dueDate:"",amount:"",notes:"",status:"Sent"});setRateSheets([]);setBols([]);setExtraCharges([]);} setShowInvForm(true); }}>{showInvForm?"📋 Resume Draft":"+ New Invoice"}</PrimaryBtn>
           </div>
         </div>
 
-        {/* Stats */}
         <div style={S.grid(4)}>
-          <StatCard label="Total Invoiced" value={fmt$(totalInvoiced)} sub={`${invoices.length} invoices`} accent="#2563eb" icon="🧾" />
-          <StatCard label="Paid" value={fmt$(totalPaid)} sub={`${invoices.filter(i => i.status === "Paid").length} invoices`} accent="#16a34a" icon="✅" />
-          <StatCard label="Pending" value={fmt$(totalPending)} sub={`${invoices.filter(i => i.status !== "Paid").length} outstanding`} accent="#d97706" icon="⏳" />
-          <StatCard label="Next Invoice #" value={`#${nextInvNum}`} sub="Sequential" accent="#7c3aed" icon="📋" />
+          <StatCard label="Total Invoiced" value={fmt$(totalInvoiced)} sub={`${invoices.length} invoices`} accent="#2563eb" icon="🧾"/>
+          <StatCard label="Paid" value={fmt$(totalPaid)} sub={`${invoices.filter(i=>i.status==="Paid").length} invoices`} accent="#16a34a" icon="✅"/>
+          <StatCard label="Pending" value={fmt$(totalPending)} sub={`${invoices.filter(i=>i.status!=="Paid").length} outstanding`} accent="#d97706" icon="⏳"/>
+          <StatCard label="Next Invoice #" value={`#${nextInvNum}`} sub="Sequential" accent="#7c3aed" icon="📋"/>
         </div>
+
+        {/* Persistent Invoice Form */}
+        {showInvForm && (
+          <div style={{background:"#fff",border:"2px solid #d97706",borderRadius:16,padding:"24px",marginBottom:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+              <div style={{fontWeight:900,fontSize:18}}>🧾 New Invoice #{nextInvNum}</div>
+              <button onClick={()=>setShowInvForm(false)} style={{background:"#f3f4f6",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:700,color:"#6b7280"}}>✕ Close</button>
+            </div>
+            <div style={fgrid}>
+              <Field label="Client" value={invFormData.clientId} onChange={v=>setInvFormData(p=>({...p,clientId:v}))} options={[{value:"",label:"— Select Client —"},...directClients.map(c=>({value:c.id,label:c.name}))]}/>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <label style={labelStyle}>Attach Load</label>
+                <select value={invFormData.loadId} onChange={e=>{const l=loads.find(x=>x.id===e.target.value);setInvFormData(p=>({...p,loadId:e.target.value,amount:l?String(Number(l.rate||0)+Number(l.detention||0)):p.amount,notes:l?l.loadNum:p.notes}));}} style={inputStyle}>
+                  <option value="">— Select Load —</option>
+                  {loads.map(l=><option key={l.id} value={l.id}>{l.loadNum} — {l.origin?.split(",")[0]} → {l.dest?.split(",")[0]} ({fmt$(Number(l.rate||0)+Number(l.detention||0))}){l.invoiceId?" ✓":""}</option>)}
+                </select>
+                {invFormData.loadId && <div style={{color:"#16a34a",fontSize:11}}>✅ Rate auto-filled</div>}
+              </div>
+              <Field label="Invoice Date" type="date" value={invFormData.date} onChange={v=>setInvFormData(p=>({...p,date:v}))}/>
+              <Field label="Due Date" type="date" value={invFormData.dueDate} onChange={v=>setInvFormData(p=>({...p,dueDate:v}))}/>
+              <Field label="Base Amount ($)" type="number" value={invFormData.amount} onChange={v=>setInvFormData(p=>({...p,amount:v}))} placeholder="Load rate"/>
+              <Field label="Status" value={invFormData.status} onChange={v=>setInvFormData(p=>({...p,status:v}))} options={["Draft","Sent","Paid"]}/>
+              <Field label="Notes / Reference" value={invFormData.notes} onChange={v=>setInvFormData(p=>({...p,notes:v}))} placeholder="Load number or notes" span/>
+            </div>
+
+            {/* Extra Charges */}
+            <div style={{background:"#f5f3ff",border:"1.5px solid #ddd6fe",borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{color:"#7c3aed",fontWeight:700,fontSize:12}}>💰 EXTRA CHARGES (Detention, Lumper, Fuel Surcharge, etc.)</div>
+                <button onClick={addExtraCharge} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:7,padding:"6px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Add Charge</button>
+              </div>
+              {extraCharges.length===0 && <div style={{color:"#9ca3af",fontSize:12}}>No extra charges — add detention, lumper fees, fuel surcharge, etc.</div>}
+              {extraCharges.map(c=>(
+                <div key={c.id} style={{display:"grid",gridTemplateColumns:"2fr 1fr auto",gap:10,marginBottom:8,alignItems:"center"}}>
+                  <input value={c.desc} onChange={e=>updateCharge(c.id,"desc",e.target.value)} placeholder="e.g. Detention — 3 hrs @ $25/hr" style={inputStyle}/>
+                  <input type="number" value={c.amount} onChange={e=>updateCharge(c.id,"amount",e.target.value)} placeholder="$0.00" style={inputStyle}/>
+                  <button onClick={()=>removeCharge(c.id)} style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca",borderRadius:6,padding:"8px 12px",cursor:"pointer",fontWeight:700}}>✕</button>
+                </div>
+              ))}
+              {extraCharges.length>0 && <div style={{display:"flex",justifyContent:"flex-end",marginTop:10,paddingTop:10,borderTop:"1px solid #ddd6fe",fontWeight:700,color:"#7c3aed"}}>Extra Total: {fmt$(totalExtra)}</div>}
+            </div>
+
+            {/* Document Upload */}
+            <div style={{background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+              <div style={{color:"#92400e",fontWeight:700,fontSize:12,marginBottom:12}}>📎 ATTACH DOCUMENTS {invScanning&&"🤖 Scanning..."}</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                <div>
+                  <label style={labelStyle}>Rate Sheet(s) — Multiple OK</label>
+                  <div onClick={()=>rateSheetRef.current?.click()} style={{marginTop:6,border:"2px dashed #fde68a",borderRadius:8,padding:"12px",textAlign:"center",cursor:"pointer",background:"#fff"}}>
+                    <div style={{color:"#92400e",fontSize:12}}>📄 Add Rate Sheet(s)<br/><span style={{fontSize:10,color:"#9ca3af"}}>PDF, JPG, PNG — select multiple</span></div>
+                  </div>
+                  <input ref={rateSheetRef} type="file" accept=".pdf,.jpg,.jpeg,.png" multiple style={{display:"none"}} onChange={e=>handleFileAdd(e,"rate")}/>
+                  {rateSheets.map((f,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#f0fdf4",borderRadius:6,padding:"6px 10px",marginTop:6,fontSize:12}}>
+                      <span style={{color:"#16a34a"}}>✅ {f.name}</span>
+                      <button onClick={()=>setRateSheets(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"#dc2626",cursor:"pointer",fontWeight:700}}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <label style={labelStyle}>BOL(s) — Multiple OK</label>
+                  <div onClick={()=>bolRef.current?.click()} style={{marginTop:6,border:"2px dashed #fde68a",borderRadius:8,padding:"12px",textAlign:"center",cursor:"pointer",background:"#fff"}}>
+                    <div style={{color:"#92400e",fontSize:12}}>📄 Add BOL(s)<br/><span style={{fontSize:10,color:"#9ca3af"}}>PDF, JPG, PNG — select multiple</span></div>
+                  </div>
+                  <input ref={bolRef} type="file" accept=".pdf,.jpg,.jpeg,.png" multiple style={{display:"none"}} onChange={e=>handleFileAdd(e,"bol")}/>
+                  {bols.map((f,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#f0fdf4",borderRadius:6,padding:"6px 10px",marginTop:6,fontSize:12}}>
+                      <span style={{color:"#16a34a"}}>✅ {f.name}</span>
+                      <button onClick={()=>setBols(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"#dc2626",cursor:"pointer",fontWeight:700}}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Total */}
+            {invFormData.amount && (
+              <div style={{background:"#1e293b",borderRadius:12,padding:"18px 24px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{color:"#9ca3af",fontSize:11,marginBottom:4}}>INVOICE TOTAL</div>
+                  <div style={{color:"#9ca3af",fontSize:12}}>Base: {fmt$(invFormData.amount)}{totalExtra>0?` + Extras: ${fmt$(totalExtra)}`:""}</div>
+                </div>
+                <div style={{color:"#fbbf24",fontFamily:"monospace",fontWeight:900,fontSize:32}}>{fmt$(invoiceTotal)}</div>
+              </div>
+            )}
+
+            <SaveBtn onClick={async()=>{
+              const inv={...invFormData,id:uid(),invoiceNumber:nextInvNum,amount:invoiceTotal,baseAmount:Number(invFormData.amount),extraCharges:[...extraCharges],rateSheets:[...rateSheets],bols:[...bols]};
+              await saveInvoice(inv);
+              showToast(`Invoice #${nextInvNum} created ✓`);
+              setTimeout(()=>generatePackage(inv),300);
+              setShowInvForm(false);setRateSheets([]);setBols([]);setExtraCharges([]);
+            }} label={`✅ Create Invoice #${nextInvNum}${(rateSheets.length||bols.length)?" & Generate Package":""}`} loading={saving}/>
+          </div>
+        )}
 
         {/* Direct Clients */}
         {directClients.length > 0 && (
           <div style={S.card}>
-            <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 14, textTransform: "uppercase" }}>Direct Clients</div>
+            <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 14, textTransform: "uppercase" }}>🏢 Direct Clients</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 12 }}>
-              {directClients.map(c => {
-                const cInvoices = invoices.filter(i => i.clientId === c.id);
-                const cTotal = cInvoices.reduce((s, i) => s + Number(i.amount || 0), 0);
-                const cPaid = cInvoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.amount || 0), 0);
-                return (
-                  <div key={c.id} style={{ background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 12, padding: "16px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <div>
-                        <div style={{ color: "#111827", fontWeight: 800, fontSize: 15 }}>{c.name}</div>
-                        {c.contactName && <div style={{ color: "#6b7280", fontSize: 12 }}>👤 {c.contactName}</div>}
-                        {c.email && <div style={{ color: "#6b7280", fontSize: 12 }}>📧 {c.email}</div>}
-                        <div style={{ color: "#7c3aed", fontSize: 12, marginTop: 4 }}>💳 {c.paymentTerms}</div>
-                      </div>
-                      <button onClick={() => { setEditItem(c); setModal("directClient"); }} style={S.btnEdt}>Edit</button>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-                      <div style={{ background: "#fff", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                        <div style={{ color: "#6b7280", fontSize: 10 }}>Total Billed</div>
-                        <div style={{ color: "#2563eb", fontWeight: 800, fontFamily: "monospace" }}>{fmt$(cTotal)}</div>
-                      </div>
-                      <div style={{ background: "#fff", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                        <div style={{ color: "#6b7280", fontSize: 10 }}>Paid</div>
-                        <div style={{ color: "#16a34a", fontWeight: 800, fontFamily: "monospace" }}>{fmt$(cPaid)}</div>
-                      </div>
+              {directClients.map(c => (
+                <div key={c.id} style={{ background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 12, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div style={{ fontWeight: 800, color: "#111" }}>{c.name}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button style={S.btnEdt} onClick={() => { setEditItem(c); setShowClientForm(true); }}>Edit</button>
+                      <button style={S.btnDel} onClick={() => delDirectClient(c.id)}>Del</button>
                     </div>
                   </div>
-                );
-              })}
+                  <div style={{ color: "#6b7280", fontSize: 12 }}>Terms: {c.paymentTerms} · {invoices.filter(i=>i.clientId===c.id).length} invoices · {fmt$(invoices.filter(i=>i.clientId===c.id).reduce((s,i)=>s+Number(i.amount||0),0))}</div>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
         {/* Invoices Table */}
         <div style={S.tableWrap}>
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #e5e7eb", fontWeight: 700, color: "#374151", display: "flex", justifyContent: "space-between" }}>
+            <span>All Invoices</span>
+            <span style={{ color: "#6b7280", fontSize: 12 }}>{invoices.length} total</span>
+          </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr>{["Invoice #", "Date", "Due Date", "Client", "Load #", "Amount", "Status", ""].map(h => <TH key={h}>{h}</TH>)}</tr></thead>
+              <thead><tr>{["Invoice #", "Client", "Load #", "Date", "Due", "Amount", "Status", "Actions"].map(h => <TH key={h}>{h}</TH>)}</tr></thead>
               <tbody>
-                {invoices.length === 0 && <tr><td colSpan={8} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No invoices yet. Click "+ New Invoice" to create one.</td></tr>}
+                {invoices.length === 0 && <tr><td colSpan={8} style={{ padding: "32px", textAlign: "center", color: "#9ca3af" }}>No invoices yet — create your first invoice above!</td></tr>}
                 {invoices.map(inv => {
                   const client = directClients.find(c => c.id === inv.clientId);
                   const load = loads.find(l => l.id === inv.loadId);
                   const isPaid = inv.status === "Paid";
+                  const statusColor = { Paid: "#16a34a", Draft: "#6b7280", Sent: "#2563eb", Overdue: "#dc2626" }[inv.status] || "#6b7280";
                   return (
-                    <tr key={inv.id} onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"} onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
-                      <TD bold color="#d97706">#{inv.invoiceNumber}</TD>
-                      <TD>{inv.date}</TD>
-                      <TD color={!isPaid && inv.dueDate && new Date(inv.dueDate) < new Date() ? "#dc2626" : "#374151"}>{inv.dueDate}</TD>
-                      <TD bold>{client?.name || "—"}</TD>
+                    <tr key={inv.id} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                      <TD color="#d97706" bold>#{inv.invoiceNumber}</TD>
+                      <TD>{client?.name || "—"}</TD>
                       <TD>{load?.loadNum || inv.notes || "—"}</TD>
+                      <TD>{inv.date}</TD>
+                      <TD>{inv.dueDate || "—"}</TD>
                       <TD mono bold color="#16a34a">{fmt$(inv.amount)}</TD>
-                      <TD>
-                        <span style={{ background: isPaid ? "#f0fdf4" : inv.status === "Sent" ? "#eff6ff" : "#fffbeb", color: isPaid ? "#16a34a" : inv.status === "Sent" ? "#2563eb" : "#d97706", border: `1px solid ${isPaid ? "#bbf7d0" : inv.status === "Sent" ? "#bfdbfe" : "#fde68a"}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>
-                          {inv.status}
-                        </span>
-                      </TD>
+                      <TD><span style={{ background: statusColor+"20", color: statusColor, border: `1px solid ${statusColor}44`, borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>{inv.status}</span></TD>
                       <TD>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                          <button style={S.btnPrint} onClick={() => printInvoice(inv)}>🖨️ Invoice</button>
-                          <button style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700 }} onClick={() => { setRateSheetData(null); setBolData(null); setRateSheetName(""); setBolName(""); generatePackage(inv); }}>📦 Package</button>
-                          {!isPaid && <button style={{ ...S.btnEdt, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }} onClick={() => updateInvoiceStatus(inv.id, "Paid")}>✅ Paid</button>}
+                          <button style={S.btnPrint} onClick={() => printInvoice(inv)}>🖨️</button>
+                          <button style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700 }} onClick={() => generatePackage(inv)}>📦 Pkg</button>
+                          {!isPaid && <button style={{ ...S.btnEdt, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }} onClick={() => updateInvoiceStatus(inv.id, "Paid")}>✅</button>}
                           <button style={S.btnDel} onClick={() => delInvoice(inv.id)}>Del</button>
                         </div>
                       </TD>
@@ -2326,82 +2332,18 @@ export default function App() {
           </div>
         </div>
 
-        {/* Add Client Form */}
+        {/* Add Client Modal */}
         {showClientForm && (
-          <ModalShell title="👥 Add Direct Client" onClose={() => setShowClientForm(false)}>
+          <ModalShell title="🏢 Add Direct Client" onClose={() => { setShowClientForm(false); setEditItem(null); }}>
             <div style={fgrid}>
-              <Field label="Company Name" value={clientF.name} onChange={v => setClientF(p => ({ ...p, name: v }))} placeholder="e.g. Prime International" />
-              <Field label="Contact Name" value={clientF.contactName} onChange={v => setClientF(p => ({ ...p, contactName: v }))} placeholder="Contact person" />
-              <Field label="Email" value={clientF.email} onChange={v => setClientF(p => ({ ...p, email: v }))} placeholder="billing@company.com" />
-              <Field label="Phone" value={clientF.phone} onChange={v => setClientF(p => ({ ...p, phone: v }))} placeholder="000-000-0000" />
-              <Field label="Address" value={clientF.address} onChange={v => setClientF(p => ({ ...p, address: v }))} placeholder="Full address" span />
-              <Field label="Payment Terms" value={clientF.paymentTerms} onChange={v => setClientF(p => ({ ...p, paymentTerms: v }))} options={["Net 2", "Net 7", "Net 15", "Net 30", "Due on Receipt"]} />
+              <Field label="Company Name" value={clientF.name} onChange={v => setClientF(p => ({ ...p, name: v }))} placeholder="Prime International" span />
+              <Field label="Contact Name" value={clientF.contactName || ""} onChange={v => setClientF(p => ({ ...p, contactName: v }))} placeholder="Contact person" />
+              <Field label="Phone" value={clientF.phone || ""} onChange={v => setClientF(p => ({ ...p, phone: v }))} placeholder="000-000-0000" />
+              <Field label="Email" value={clientF.email || ""} onChange={v => setClientF(p => ({ ...p, email: v }))} placeholder="billing@company.com" />
+              <Field label="Payment Terms" value={clientF.paymentTerms || "Net 2"} onChange={v => setClientF(p => ({ ...p, paymentTerms: v }))} options={["Net 2", "Net 7", "Net 15", "Net 30", "Due on Receipt"]} />
+              <Field label="Address" value={clientF.address || ""} onChange={v => setClientF(p => ({ ...p, address: v }))} placeholder="Full address" span />
             </div>
-            <SaveBtn onClick={async () => { await saveDirectClient(clientF); setShowClientForm(false); }} label="✅ Add Client" loading={saving} />
-          </ModalShell>
-        )}
-
-        {/* New Invoice Form */}
-        {showInvForm && (
-          <ModalShell title={`🧾 New Invoice #${nextInvNum}`} onClose={() => setShowInvForm(false)} wide>
-            <div style={fgrid}>
-              <Field label="Client" value={invF.clientId} onChange={v => setInvF(p => ({ ...p, clientId: v }))} options={directClients.map(c => ({ value: c.id, label: c.name }))} />
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={labelStyle}>Attach Load (optional)</label>
-                <select value={invF.loadId} onChange={e => { const l = loads.find(x => x.id === e.target.value); setInvF(p => ({ ...p, loadId: e.target.value, amount: l ? String(Number(l.rate || 0) + Number(l.detention || 0)) : p.amount, notes: l ? l.loadNum : p.notes })); }} style={inputStyle}>
-                  <option value="">— Select Load —</option>
-                  {loads.map(l => <option key={l.id} value={l.id}>{l.loadNum} — {l.origin?.split(",")[0]} → {l.dest?.split(",")[0]} ({fmt$(Number(l.rate||0)+Number(l.detention||0))}){l.invoiceId ? " ✓" : ""}</option>)}
-                </select>
-                {invF.loadId && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ Rate auto-filled from load</div>}
-              </div>
-              <Field label="Invoice Date" type="date" value={invF.date} onChange={v => setInvF(p => ({ ...p, date: v }))} />
-              <Field label="Due Date" type="date" value={invF.dueDate} onChange={v => setInvF(p => ({ ...p, dueDate: v }))} />
-              <Field label="Amount ($)" type="number" value={invF.amount} onChange={v => setInvF(p => ({ ...p, amount: v }))} placeholder="0.00" />
-              <Field label="Status" value={invF.status} onChange={v => setInvF(p => ({ ...p, status: v }))} options={["Draft", "Sent", "Paid"]} />
-              <Field label="Notes / Load Reference" value={invF.notes} onChange={v => setInvF(p => ({ ...p, notes: v }))} placeholder="Load number or notes" span />
-            </div>
-
-            {/* Document Upload Section */}
-            <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
-              <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 12 }}>
-                📎 ATTACH DOCUMENTS — AI will auto-detect client & load {scanning && "🤖 Scanning..."}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <label style={labelStyle}>Rate Sheet / Load Tender</label>
-                  <div onClick={() => rateSheetRef.current?.click()} style={{ marginTop: 6, border: `2px dashed ${rateSheetData ? "#16a34a" : "#fde68a"}`, borderRadius: 8, padding: "14px", textAlign: "center", cursor: "pointer", background: rateSheetData ? "#f0fdf4" : "#fff" }}>
-                    {rateSheetData ? <div style={{ color: "#16a34a", fontWeight: 700 }}>✅ {rateSheetName}</div> : <div style={{ color: "#92400e", fontSize: 12 }}>📄 Click to upload Rate Sheet<br/><span style={{ fontSize: 10, color: "#9ca3af" }}>PDF, JPG, PNG</span></div>}
-                  </div>
-                  <input ref={rateSheetRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={e => handleFileUpload(e, "rateSheet")} />
-                  {rateSheetData && <button onClick={() => { setRateSheetData(null); setRateSheetName(""); }} style={{ marginTop: 4, fontSize: 10, color: "#dc2626", background: "none", border: "none", cursor: "pointer" }}>✕ Remove</button>}
-                </div>
-                <div>
-                  <label style={labelStyle}>Bill of Lading (BOL)</label>
-                  <div onClick={() => bolRef.current?.click()} style={{ marginTop: 6, border: `2px dashed ${bolData ? "#16a34a" : "#fde68a"}`, borderRadius: 8, padding: "14px", textAlign: "center", cursor: "pointer", background: bolData ? "#f0fdf4" : "#fff" }}>
-                    {bolData ? <div style={{ color: "#16a34a", fontWeight: 700 }}>✅ {bolName}</div> : <div style={{ color: "#92400e", fontSize: 12 }}>📄 Click to upload BOL<br/><span style={{ fontSize: 10, color: "#9ca3af" }}>PDF, JPG, PNG</span></div>}
-                  </div>
-                  <input ref={bolRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={e => handleFileUpload(e, "bol")} />
-                  {bolData && <button onClick={() => { setBolData(null); setBolName(""); }} style={{ marginTop: 4, fontSize: 10, color: "#dc2626", background: "none", border: "none", cursor: "pointer" }}>✕ Remove</button>}
-                </div>
-              </div>
-              {(rateSheetData || bolData) && (
-                <div style={{ marginTop: 10, color: "#16a34a", fontSize: 12, fontWeight: 600 }}>
-                  ✅ {[rateSheetData && "Rate Sheet", bolData && "BOL"].filter(Boolean).join(" + ")} attached — will be included in invoice package
-                </div>
-              )}
-            </div>
-            {invF.amount && (
-              <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "#166534", fontWeight: 700 }}>Invoice Total</span>
-                  <span style={{ color: "#16a34a", fontFamily: "monospace", fontWeight: 900, fontSize: 22 }}>{fmt$(invF.amount)}</span>
-                </div>
-                {invF.dueDate && <div style={{ color: "#6b7280", fontSize: 12, marginTop: 6 }}>Due: {invF.dueDate} · {directClients.find(c => c.id === invF.clientId)?.paymentTerms || "Net 2"}</div>}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 12 }}>
-              <SaveBtn onClick={async () => { const inv = { ...invF, id: uid(), invoiceNumber: nextInvNum }; await saveInvoice(inv); setShowInvForm(false); showToast(`Invoice #${nextInvNum} created ✓`); if (rateSheetData || bolData) { setTimeout(() => generatePackage(inv), 500); } }} label={`✅ Create Invoice #${nextInvNum}${(rateSheetData || bolData) ? " + Generate Package" : ""}`} loading={saving} />
-            </div>
+            <SaveBtn onClick={async () => { await saveDirectClient(clientF); setShowClientForm(false); setEditItem(null); }} label={editItem ? "💾 Update" : "✅ Add Client"} loading={saving} />
           </ModalShell>
         )}
       </>
