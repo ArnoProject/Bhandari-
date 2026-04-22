@@ -2209,6 +2209,7 @@ export default function App() {
 
   // Package Modal — upload rate sheet + BOL then generate
   const PackageModal = () => {
+    const [generating, setGenerating] = useState(false);
     const pkgRateRef = useRef();
     const pkgBolRef = useRef();
     const inv = packageInv;
@@ -2227,8 +2228,6 @@ export default function App() {
       }
       e.target.value = "";
     };
-
-    const [generating, setGenerating] = useState(false);
 
     const generate = async () => {
       setGenerating(true);
