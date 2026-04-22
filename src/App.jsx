@@ -2068,13 +2068,42 @@ export default function App() {
     const totalPaid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.amount || 0), 0);
     const totalPending = invoices.filter(i => i.status !== "Paid").reduce((s, i) => s + Number(i.amount || 0), 0);
 
-    const handleFileUpload = (e, type) => {
+    const [scanning, setScanning] = useState(false);
+
+    const handleFileUpload = async (e, type) => {
       const file = e.target.files[0]; if (!file) return;
       const reader = new FileReader();
-      reader.onload = ev => {
+      reader.onload = async (ev) => {
         const base64 = ev.target.result;
         if (type === "rateSheet") { setRateSheetData(base64); setRateSheetName(file.name); }
         else { setBolData(base64); setBolName(file.name); }
+
+        // AI auto-detect from uploaded document
+        setScanning(true);
+        try {
+          const mediaType = file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+          const result = await parseWithAI(base64.split(",")[1], mediaType,
+            `You are reading a trucking document (rate confirmation or bill of lading). Extract billing info. Return ONLY valid JSON:\n{"loadNum":"load or PO number","broker":"company name that hired the carrier (broker or shipper)","amount":total dollar amount as number or null,"pickupDate":"YYYY-MM-DD or null","origin":"pickup city ST","dest":"delivery city ST"}\nReturn ONLY the JSON.`
+          );
+          if (result) {
+            // Try to find matching load
+            const matchLoad = result.loadNum ? loads.find(l => l.loadNum === result.loadNum || l.loadNum?.includes(result.loadNum) || result.loadNum?.includes(l.loadNum)) : null;
+            // Try to find matching client
+            const matchClient = result.broker ? directClients.find(c => c.name.toLowerCase().includes(result.broker?.toLowerCase()) || result.broker?.toLowerCase().includes(c.name.toLowerCase())) : null;
+            setInvF(p => ({
+              ...p,
+              loadId: matchLoad ? matchLoad.id : p.loadId,
+              clientId: matchClient ? matchClient.id : p.clientId,
+              amount: matchLoad ? String(Number(matchLoad.rate||0)+Number(matchLoad.detention||0)) : (result.amount ? String(result.amount) : p.amount),
+              notes: result.loadNum || p.notes,
+              date: result.pickupDate || p.date,
+            }));
+            if (matchClient || matchLoad) {
+              showToast(`✅ Auto-detected: ${matchClient?.name || ""}${matchLoad ? ` · Load ${matchLoad.loadNum}` : ""}`);
+            }
+          }
+        } catch {}
+        setScanning(false);
       };
       reader.readAsDataURL(file);
     };
@@ -2321,7 +2350,7 @@ export default function App() {
                 <label style={labelStyle}>Attach Load (optional)</label>
                 <select value={invF.loadId} onChange={e => { const l = loads.find(x => x.id === e.target.value); setInvF(p => ({ ...p, loadId: e.target.value, amount: l ? String(Number(l.rate || 0) + Number(l.detention || 0)) : p.amount, notes: l ? l.loadNum : p.notes })); }} style={inputStyle}>
                   <option value="">— Select Load —</option>
-                  {loads.filter(l => !l.invoiceId).map(l => <option key={l.id} value={l.id}>{l.loadNum} — {l.origin?.split(",")[0]} → {l.dest?.split(",")[0]} ({fmt$(Number(l.rate||0)+Number(l.detention||0))})</option>)}
+                  {loads.map(l => <option key={l.id} value={l.id}>{l.loadNum} — {l.origin?.split(",")[0]} → {l.dest?.split(",")[0]} ({fmt$(Number(l.rate||0)+Number(l.detention||0))}){l.invoiceId ? " ✓" : ""}</option>)}
                 </select>
                 {invF.loadId && <div style={{ color: "#16a34a", fontSize: 11 }}>✅ Rate auto-filled from load</div>}
               </div>
@@ -2334,7 +2363,9 @@ export default function App() {
 
             {/* Document Upload Section */}
             <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
-              <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 12 }}>📎 ATTACH DOCUMENTS FOR INVOICE PACKAGE</div>
+              <div style={{ color: "#92400e", fontWeight: 700, fontSize: 12, marginBottom: 12 }}>
+                📎 ATTACH DOCUMENTS — AI will auto-detect client & load {scanning && "🤖 Scanning..."}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={labelStyle}>Rate Sheet / Load Tender</label>
