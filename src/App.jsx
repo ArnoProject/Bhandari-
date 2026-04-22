@@ -2277,8 +2277,6 @@ export default function App() {
       }
       setGenerating(false);
     };
-      setPackageInv(null); setPackageRateSheets([]); setPackageBols([]);
-    };
 
     return (
       <ModalShell title={`📦 Invoice Package #${inv.invoiceNumber}`} onClose={() => { setPackageInv(null); setPackageRateSheets([]); setPackageBols([]); }} wide>
