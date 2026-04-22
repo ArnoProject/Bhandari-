@@ -2216,93 +2216,68 @@ export default function App() {
     const client = directClients.find(c => c.id === inv.clientId);
     const load = loads.find(l => l.id === inv.loadId);
 
-    const addFile = (e, type) => {
+    const addFile = async (e, type) => {
       const files = Array.from(e.target.files);
       if (!files.length) return;
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onload = ev => {
-          if (type === "rate") setPackageRateSheets(p => [...p, { name: file.name, data: ev.target.result }]);
-          else setPackageBols(p => [...p, { name: file.name, data: ev.target.result }]);
-        };
-        reader.readAsDataURL(file);
-      });
+      for (const file of files) {
+        const base64 = await new Promise(res => { const r = new FileReader(); r.onload = ev => res(ev.target.result); r.readAsDataURL(file); });
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        if (type === "rate") setPackageRateSheets(p => [...p, { name: file.name, data: base64, isPdf }]);
+        else setPackageBols(p => [...p, { name: file.name, data: base64, isPdf }]);
+      }
       e.target.value = "";
     };
 
-    const generate = () => {
-      // Use the generatePackage function from Invoices with our files
-      const charges = inv.extraCharges || [];
-      const totalAmt = Number(inv.amount || 0);
-      const w = window.open("", "_blank");
-      w.document.write(`<!DOCTYPE html><html><head><title>Invoice Package #${inv.invoiceNumber}</title><style>
-        *{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#111;font-size:13px}
-        .no-print{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin:20px;display:flex;justify-content:space-between;align-items:center}
-        .no-print button{background:#16a34a;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-weight:700;cursor:pointer;font-size:14px}
-        .page{max-width:800px;margin:20px auto;padding:30px;page-break-after:always}.page:last-child{page-break-after:auto}
-        .divider{text-align:center;padding:14px;color:#9ca3af;font-size:11px;font-weight:700;letter-spacing:2px;border-top:2px dashed #e5e7eb;border-bottom:2px dashed #e5e7eb;margin:0 20px;background:#f9fafb}
-        .header{border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:20px;display:flex;justify-content:space-between}
-        table{width:100%;border-collapse:collapse;margin-bottom:20px}
-        th{background:#1e293b;color:#fff;padding:11px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase}
-        th.r,td.r{text-align:right}td{padding:13px 14px;border-bottom:1px solid #e5e7eb;font-size:13px}
-        .totals{margin-left:auto;width:300px}.tot-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:14px}
-        .tot-row.final{font-size:19px;font-weight:900;border-top:3px solid #111;border-bottom:none;padding-top:12px}
-        .balance{background:#d97706;color:#fff;border-radius:10px;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-top:14px}
-        .doc-img{width:100%;display:block}.footer{text-align:center;color:#9ca3af;font-size:11px;padding-top:14px;border-top:1px solid #e5e7eb;margin-top:20px}
-        @media print{.no-print{display:none}.page{margin:0;padding:20px}}
-      </style></head><body>
-      <div class="no-print"><span style="font-weight:700;color:#16a34a">📦 Invoice Package #${inv.invoiceNumber} — ${client?.name||""} — Ready!</span><button onclick="printPkg()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-weight:700;cursor:pointer;font-size:14px">🖨️ Print / Save PDF</button></div>
-      <div class="page">
-        <div class="header">
-          <div><div style="font-size:22px;font-weight:900">⛟ BHANDARI LOGISTICS LLC</div><div style="color:#6b7280;font-size:12px;margin-top:4px">7615 N 90TH ST · OMAHA, NE 68122 · Tel: (402) 591-0847 · bhandarilogistics78@gmail.com · MC# 1166353</div></div>
-          <div style="text-align:right"><div style="font-size:42px;font-weight:900;letter-spacing:3px">INVOICE</div><div style="font-size:22px;color:#d97706;font-weight:700"># ${inv.invoiceNumber}</div></div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;background:#f9fafb;border-radius:8px;padding:14px;margin-bottom:20px">
-          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:3px">Invoice Date</div><div style="font-size:14px;font-weight:700">${inv.date}</div></div>
-          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:3px">Due Date</div><div style="font-size:14px;font-weight:700">${inv.dueDate||"Upon Receipt"}</div></div>
-          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:3px">PO / Load #</div><div style="font-size:14px;font-weight:700">${load?.loadNum||inv.notes||"—"}</div></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:20px">
-          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:8px">From</div><p style="font-size:14px;line-height:1.8"><strong>Bhandari Logistics LLC</strong><br>7615 N 90TH ST<br>Omaha, NE 68122<br>MC# 1166353</p></div>
-          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:8px">Bill To</div><p style="font-size:14px;line-height:1.8"><strong>${client?.name||"—"}</strong><br>${client?.address||""}</p></div>
-        </div>
-        <table>
-          <thead><tr><th>Description</th><th>Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
-          <tbody>
-            <tr><td><strong>LOAD NUMBER ${load?.loadNum||inv.notes||"—"}</strong>${load?`<br><span style="color:#6b7280;font-size:12px">${load.origin||""} → ${load.dest||""} · Driver: ${load.driver||"—"}</span>`:""}</td><td>1</td><td class="r">$${fmtN(Number(inv.baseAmount||inv.amount),2)}</td><td class="r">$${fmtN(Number(inv.baseAmount||inv.amount),2)}</td></tr>
-            ${charges.filter(c=>c.desc&&c.amount).map(c=>`<tr><td>${c.desc}</td><td>1</td><td class="r">$${fmtN(Number(c.amount),2)}</td><td class="r">$${fmtN(Number(c.amount),2)}</td></tr>`).join("")}
-          </tbody>
-        </table>
-        <div class="totals">
-          <div class="tot-row"><span>Subtotal:</span><span>$${fmtN(totalAmt,2)}</span></div>
-          <div class="tot-row"><span>Tax (0%):</span><span>$0.00</span></div>
-          <div class="tot-row final"><span>Total:</span><span>$${fmtN(totalAmt,2)}</span></div>
-        </div>
-        <div class="balance"><div style="font-size:14px;font-weight:700">BALANCE DUE</div><div style="font-size:32px;font-weight:900;font-family:monospace">$${fmtN(Number(inv.status==="Paid"?0:totalAmt),2)}</div></div>
-        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:12px;color:#1e40af"><strong>Payment:</strong> ACH within ${client?.paymentTerms||"2"} business days · (402) 591-0847 · bhandarilogistics78@gmail.com</div>
-        <div class="footer">Page 1 of ${1+packageRateSheets.length+packageBols.length} · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
-      </div>
-      ${packageRateSheets.map((rs,i)=>{
-        const isPdf = rs.data.startsWith('data:application/pdf') || rs.name?.toLowerCase().endsWith('.pdf');
-        const docEl = isPdf 
-          ? `<embed src="${rs.data}" type="application/pdf" width="100%" height="1000px" style="display:block"/>`
-          : `<img src="${rs.data}" style="width:100%;display:block"/>`;
-        return `<div class="divider">— RATE CONFIRMATION${packageRateSheets.length>1?" "+(i+1):""} —</div><div class="page" style="padding:0">${docEl}<div class="footer" style="padding:14px">Rate Confirmation · Invoice #${inv.invoiceNumber}</div></div>`;
-      }).join("")}
-      ${packageBols.map((b,i)=>{
-        const isPdf = b.data.startsWith('data:application/pdf') || b.name?.toLowerCase().endsWith('.pdf');
-        const docEl = isPdf
-          ? `<embed src="${b.data}" type="application/pdf" width="100%" height="1000px" style="display:block"/>`
-          : `<img src="${b.data}" style="width:100%;display:block"/>`;
-        return `<div class="divider">— BILL OF LADING${packageBols.length>1?" "+(i+1):""} —</div><div class="page" style="padding:0">${docEl}<div class="footer" style="padding:14px">Bill of Lading · Invoice #${inv.invoiceNumber}</div></div>`;
-      }).join("")}
-      <script>
-        function printPkg() {
-          // Wait for all content to load then print
-          setTimeout(() => window.print(), 1000);
-        }
-      </script></body></html>`);
-      w.document.close();
+    const [generating, setGenerating] = useState(false);
+
+    const generate = async () => {
+      setGenerating(true);
+      try {
+        const invoiceData = {
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.date,
+          dueDate: inv.dueDate,
+          loadNum: load?.loadNum || inv.notes || '',
+          origin: load?.origin || '',
+          dest: load?.dest || '',
+          driver: load?.driver || '',
+          clientName: client?.name || '',
+          clientAddress: client?.address || '',
+          paymentTerms: client?.paymentTerms || '2',
+          amount: inv.amount,
+          baseAmount: inv.baseAmount || inv.amount,
+          extraCharges: inv.extraCharges || [],
+        };
+
+        const response = await fetch('/api/invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoice: invoiceData,
+            rateSheets: packageRateSheets.map(f => f.data),
+            bols: packageBols.map(f => f.data),
+          })
+        });
+
+        const data = await response.json();
+        if (data.error) { showToast('PDF generation failed: ' + data.error, 'error'); return; }
+
+        // Download the PDF
+        const bytes = Uint8Array.from(atob(data.pdf), c => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Invoice_Package_${inv.invoiceNumber}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`✅ Invoice Package #${inv.invoiceNumber} downloaded!`);
+        setPackageInv(null); setPackageRateSheets([]); setPackageBols([]);
+      } catch(e) {
+        showToast('Error: ' + e.message, 'error');
+      }
+      setGenerating(false);
+    };
       setPackageInv(null); setPackageRateSheets([]); setPackageBols([]);
     };
 
@@ -2357,7 +2332,7 @@ export default function App() {
           {packageRateSheets.length === 0 && packageBols.length === 0 && <span style={{ color: "#d97706" }}>⚠️ Upload at least one document above</span>}
         </div>
 
-        <SaveBtn onClick={generate} label={`📦 Generate Invoice Package (${1+packageRateSheets.length+packageBols.length} pages)`} loading={false} />
+        <SaveBtn onClick={generate} label={generating ? "⏳ Generating PDF..." : `📥 Download Invoice Package PDF (${1+packageRateSheets.length+packageBols.length} pages)`} loading={generating} />
       </ModalShell>
     );
   };
