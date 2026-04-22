@@ -1354,7 +1354,9 @@ export default function App() {
   const [expenseDraft, setExpenseDraft] = useState(null);
   const [fuelDraft, setFuelDraft] = useState(null);
   const [invoiceDraft, setInvoiceDraft] = useState(null);
-  const [invFormData, setInvFormData] = useState({ clientId: "", loadId: "", date: today(), dueDate: "", amount: "", notes: "", status: "Sent" });
+  const [packageInv, setPackageInv] = useState(null);
+  const [packageRateSheets, setPackageRateSheets] = useState([]);
+  const [packageBols, setPackageBols] = useState([]);
   const [rateSheets, setRateSheets] = useState([]);
   const [bols, setBols] = useState([]);
   const [extraCharges, setExtraCharges] = useState([]);
@@ -2204,7 +2206,143 @@ export default function App() {
     </>
   );
 
-  const Invoices = () => {
+  // Package Modal — upload rate sheet + BOL then generate
+  const PackageModal = () => {
+    const pkgRateRef = useRef();
+    const pkgBolRef = useRef();
+    const inv = packageInv;
+    if (!inv) return null;
+    const client = directClients.find(c => c.id === inv.clientId);
+    const load = loads.find(l => l.id === inv.loadId);
+
+    const addFile = (e, type) => {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          if (type === "rate") setPackageRateSheets(p => [...p, { name: file.name, data: ev.target.result }]);
+          else setPackageBols(p => [...p, { name: file.name, data: ev.target.result }]);
+        };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = "";
+    };
+
+    const generate = () => {
+      // Use the generatePackage function from Invoices with our files
+      const charges = inv.extraCharges || [];
+      const totalAmt = Number(inv.amount || 0);
+      const w = window.open("", "_blank");
+      w.document.write(`<!DOCTYPE html><html><head><title>Invoice Package #${inv.invoiceNumber}</title><style>
+        *{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#111;font-size:13px}
+        .no-print{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin:20px;display:flex;justify-content:space-between;align-items:center}
+        .no-print button{background:#16a34a;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-weight:700;cursor:pointer;font-size:14px}
+        .page{max-width:800px;margin:20px auto;padding:30px;page-break-after:always}.page:last-child{page-break-after:auto}
+        .divider{text-align:center;padding:14px;color:#9ca3af;font-size:11px;font-weight:700;letter-spacing:2px;border-top:2px dashed #e5e7eb;border-bottom:2px dashed #e5e7eb;margin:0 20px;background:#f9fafb}
+        .header{border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:20px;display:flex;justify-content:space-between}
+        table{width:100%;border-collapse:collapse;margin-bottom:20px}
+        th{background:#1e293b;color:#fff;padding:11px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase}
+        th.r,td.r{text-align:right}td{padding:13px 14px;border-bottom:1px solid #e5e7eb;font-size:13px}
+        .totals{margin-left:auto;width:300px}.tot-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:14px}
+        .tot-row.final{font-size:19px;font-weight:900;border-top:3px solid #111;border-bottom:none;padding-top:12px}
+        .balance{background:#d97706;color:#fff;border-radius:10px;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-top:14px}
+        .doc-img{width:100%;display:block}.footer{text-align:center;color:#9ca3af;font-size:11px;padding-top:14px;border-top:1px solid #e5e7eb;margin-top:20px}
+        @media print{.no-print{display:none}.page{margin:0;padding:20px}}
+      </style></head><body>
+      <div class="no-print"><span style="font-weight:700;color:#16a34a">📦 Invoice Package #${inv.invoiceNumber} — ${client?.name||""} — Ready!</span><button onclick="window.print()">🖨️ Print / Save PDF</button></div>
+      <div class="page">
+        <div class="header">
+          <div><div style="font-size:22px;font-weight:900">⛟ BHANDARI LOGISTICS LLC</div><div style="color:#6b7280;font-size:12px;margin-top:4px">7615 N 90TH ST · OMAHA, NE 68122 · Tel: (402) 591-0847 · bhandarilogistics78@gmail.com · MC# 1166353</div></div>
+          <div style="text-align:right"><div style="font-size:42px;font-weight:900;letter-spacing:3px">INVOICE</div><div style="font-size:22px;color:#d97706;font-weight:700"># ${inv.invoiceNumber}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;background:#f9fafb;border-radius:8px;padding:14px;margin-bottom:20px">
+          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:3px">Invoice Date</div><div style="font-size:14px;font-weight:700">${inv.date}</div></div>
+          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:3px">Due Date</div><div style="font-size:14px;font-weight:700">${inv.dueDate||"Upon Receipt"}</div></div>
+          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:3px">PO / Load #</div><div style="font-size:14px;font-weight:700">${load?.loadNum||inv.notes||"—"}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:20px">
+          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:8px">From</div><p style="font-size:14px;line-height:1.8"><strong>Bhandari Logistics LLC</strong><br>7615 N 90TH ST<br>Omaha, NE 68122<br>MC# 1166353</p></div>
+          <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:8px">Bill To</div><p style="font-size:14px;line-height:1.8"><strong>${client?.name||"—"}</strong><br>${client?.address||""}</p></div>
+        </div>
+        <table>
+          <thead><tr><th>Description</th><th>Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
+          <tbody>
+            <tr><td><strong>LOAD NUMBER ${load?.loadNum||inv.notes||"—"}</strong>${load?`<br><span style="color:#6b7280;font-size:12px">${load.origin||""} → ${load.dest||""} · Driver: ${load.driver||"—"}</span>`:""}</td><td>1</td><td class="r">$${fmtN(Number(inv.baseAmount||inv.amount),2)}</td><td class="r">$${fmtN(Number(inv.baseAmount||inv.amount),2)}</td></tr>
+            ${charges.filter(c=>c.desc&&c.amount).map(c=>`<tr><td>${c.desc}</td><td>1</td><td class="r">$${fmtN(Number(c.amount),2)}</td><td class="r">$${fmtN(Number(c.amount),2)}</td></tr>`).join("")}
+          </tbody>
+        </table>
+        <div class="totals">
+          <div class="tot-row"><span>Subtotal:</span><span>$${fmtN(totalAmt,2)}</span></div>
+          <div class="tot-row"><span>Tax (0%):</span><span>$0.00</span></div>
+          <div class="tot-row final"><span>Total:</span><span>$${fmtN(totalAmt,2)}</span></div>
+        </div>
+        <div class="balance"><div style="font-size:14px;font-weight:700">BALANCE DUE</div><div style="font-size:32px;font-weight:900;font-family:monospace">$${fmtN(Number(inv.status==="Paid"?0:totalAmt),2)}</div></div>
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:12px;color:#1e40af"><strong>Payment:</strong> ACH within ${client?.paymentTerms||"2"} business days · (402) 591-0847 · bhandarilogistics78@gmail.com</div>
+        <div class="footer">Page 1 of ${1+packageRateSheets.length+packageBols.length} · Bhandari Logistics LLC · Invoice #${inv.invoiceNumber}</div>
+      </div>
+      ${packageRateSheets.map((rs,i)=>`<div class="divider">— RATE CONFIRMATION${packageRateSheets.length>1?" "+(i+1):""} —</div><div class="page"><img src="${rs.data}" class="doc-img"/><div class="footer">Rate Confirmation · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
+      ${packageBols.map((b,i)=>`<div class="divider">— BILL OF LADING${packageBols.length>1?" "+(i+1):""} —</div><div class="page"><img src="${b.data}" class="doc-img"/><div class="footer">Bill of Lading · Invoice #${inv.invoiceNumber}</div></div>`).join("")}
+      <script>window.onload=()=>window.print();</script></body></html>`);
+      w.document.close();
+      setPackageInv(null); setPackageRateSheets([]); setPackageBols([]);
+    };
+
+    return (
+      <ModalShell title={`📦 Invoice Package #${inv.invoiceNumber}`} onClose={() => { setPackageInv(null); setPackageRateSheets([]); setPackageBols([]); }} wide>
+        <div style={{ background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
+          <div style={{ color: "#1e40af", fontWeight: 700 }}>Invoice #{inv.invoiceNumber} — {client?.name} — {fmt$(inv.amount)}</div>
+          <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>Upload Rate Sheet and BOL to include in the package</div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+          {/* Rate Sheets */}
+          <div>
+            <label style={labelStyle}>Rate Sheet(s) / Load Tender</label>
+            <div onClick={() => pkgRateRef.current?.click()} style={{ marginTop: 6, border: "2px dashed #bfdbfe", borderRadius: 8, padding: "20px", textAlign: "center", cursor: "pointer", background: "#f9fafb" }}>
+              <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+              <div style={{ color: "#2563eb", fontSize: 13, fontWeight: 700 }}>Click to upload Rate Sheet(s)</div>
+              <div style={{ color: "#9ca3af", fontSize: 11, marginTop: 4 }}>PDF, JPG, PNG — select multiple</div>
+            </div>
+            <input ref={pkgRateRef} type="file" accept=".pdf,.jpg,.jpeg,.png" multiple style={{ display: "none" }} onChange={e => addFile(e, "rate")} />
+            {packageRateSheets.map((f, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f0fdf4", borderRadius: 6, padding: "8px 12px", marginTop: 8, fontSize: 12 }}>
+                <span style={{ color: "#16a34a" }}>✅ {f.name}</span>
+                <button onClick={() => setPackageRateSheets(p => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: "#dc2626", cursor: "pointer", fontWeight: 700, fontSize: 14 }}>✕</button>
+              </div>
+            ))}
+          </div>
+
+          {/* BOLs */}
+          <div>
+            <label style={labelStyle}>Bill of Lading (BOL)</label>
+            <div onClick={() => pkgBolRef.current?.click()} style={{ marginTop: 6, border: "2px dashed #bbf7d0", borderRadius: 8, padding: "20px", textAlign: "center", cursor: "pointer", background: "#f9fafb" }}>
+              <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+              <div style={{ color: "#16a34a", fontSize: 13, fontWeight: 700 }}>Click to upload BOL(s)</div>
+              <div style={{ color: "#9ca3af", fontSize: 11, marginTop: 4 }}>PDF, JPG, PNG — select multiple</div>
+            </div>
+            <input ref={pkgBolRef} type="file" accept=".pdf,.jpg,.jpeg,.png" multiple style={{ display: "none" }} onChange={e => addFile(e, "bol")} />
+            {packageBols.map((f, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f0fdf4", borderRadius: 6, padding: "8px 12px", marginTop: 8, fontSize: 12 }}>
+                <span style={{ color: "#16a34a" }}>✅ {f.name}</span>
+                <button onClick={() => setPackageBols(p => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: "#dc2626", cursor: "pointer", fontWeight: 700, fontSize: 14 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: "#f9fafb", borderRadius: 10, padding: "14px 16px", marginBottom: 16, fontSize: 12, color: "#374151" }}>
+          <strong>Package will include:</strong><br/>
+          📄 Page 1 — Invoice #{inv.invoiceNumber}<br/>
+          {packageRateSheets.map((f,i) => <span key={i}>📄 Page {i+2} — Rate Sheet: {f.name}<br/></span>)}
+          {packageBols.map((f,i) => <span key={i}>📄 Page {packageRateSheets.length+i+2} — BOL: {f.name}<br/></span>)}
+          {packageRateSheets.length === 0 && packageBols.length === 0 && <span style={{ color: "#d97706" }}>⚠️ Upload at least one document above</span>}
+        </div>
+
+        <SaveBtn onClick={generate} label={`📦 Generate Invoice Package (${1+packageRateSheets.length+packageBols.length} pages)`} loading={false} />
+      </ModalShell>
+    );
+  };
     const nextInvNum = invoices.length > 0 ? Math.max(...invoices.map(i => i.invoiceNumber || 0)) + 1 : 44;
     const totalInvoiced = invoices.reduce((s, i) => s + Number(i.amount || 0), 0);
     const totalPaid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.amount || 0), 0);
@@ -2476,7 +2614,7 @@ export default function App() {
                       <TD>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                           <button style={S.btnPrint} onClick={() => printInvoice(inv)}>🖨️</button>
-                          <button style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700 }} onClick={() => generatePackage(inv)}>📦 Pkg</button>
+                          <button style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700 }} onClick={() => { setPackageInv(inv); setPackageRateSheets([]); setPackageBols([]); }}>📦 Pkg</button>
                           {!isPaid && <button style={{ ...S.btnEdt, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }} onClick={() => updateInvoiceStatus(inv.id, "Paid")}>✅</button>}
                           <button style={S.btnDel} onClick={() => delInvoice(inv.id)}>Del</button>
                         </div>
@@ -2936,7 +3074,7 @@ export default function App() {
       {modal === "rateCon" && <RateConModal onClose={closeModal} onLoad={(f) => { saveLoadDirect(f); setRateConDraft(null); }} trucks={trucks} trailers={trailers} drivers={driverProfiles} draft={rateConDraft} onSaveDraft={setRateConDraft} />}
       {modal === "mudflap" && <MudflapModal onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
       {modal === "csvImport" && <CsvImportForm onClose={closeModal} onImport={importFuel} saving={saving} trucks={trucks} />}
-      {modal === "driverLoads" && <DriverLoadsModal />}
+      {packageInv && <PackageModal />}
       {modal === "factoringDetail" && factoringLoad && <FactoringDetailModal load={factoringLoad} truck={truckById(factoringLoad.truckId)} trailer={trailerById(factoringLoad.trailerId)} onClose={closeModal} onUpdateStatus={(status) => { updateFactoringStatus(factoringLoad.id, status); closeModal(); }} />}
 
       {toast && (<div style={{ position: "fixed", bottom: 24, right: 24, background: toast.type === "error" ? "#fef2f2" : toast.type === "warn" ? "#fffbeb" : "#f0fdf4", border: `1.5px solid ${toast.type === "error" ? "#fecaca" : toast.type === "warn" ? "#fde68a" : "#bbf7d0"}`, borderRadius: 10, padding: "12px 20px", color: toast.type === "error" ? "#dc2626" : toast.type === "warn" ? "#d97706" : "#16a34a", fontWeight: 700, fontSize: 13, zIndex: 99999, boxShadow: "0 8px 24px rgba(0,0,0,0.12)" }}>{toast.msg}</div>)}
