@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPA_URL = "https://ajwniougsadsvfaaxryb.supabase.co";
+const SUPA_URL = "https://ajwniougsadsvfaaxryb.supabase.co"; // v5.1
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqd25pb3Vnc2Fkc3ZmYWF4cnliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMjEzMDksImV4cCI6MjA5MTY5NzMwOX0.rSvnFp6msExdw1b_UBL5d04HioZzSadaaGSjIOmPLc0";
 const db = createClient(SUPA_URL, SUPA_KEY);
 
@@ -2344,6 +2344,8 @@ export default function App() {
       </ModalShell>
     );
   };
+
+  const Invoices = () => {
     const nextInvNum = invoices.length > 0 ? Math.max(...invoices.map(i => i.invoiceNumber || 0)) + 1 : 44;
     const totalInvoiced = invoices.reduce((s, i) => s + Number(i.amount || 0), 0);
     const totalPaid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.amount || 0), 0);
