@@ -2230,6 +2230,10 @@ export default function App() {
     };
 
     const generate = async () => {
+      if (packageRateSheets.length === 0 && packageBols.length === 0) {
+        showToast("Upload at least one Rate Sheet or BOL first", "error");
+        return;
+      }
       setGenerating(true);
       try {
         const invoiceData = {
@@ -2248,6 +2252,8 @@ export default function App() {
           extraCharges: inv.extraCharges || [],
         };
 
+        console.log('Calling /api/invoice with', packageRateSheets.length, 'rate sheets and', packageBols.length, 'BOLs');
+
         const response = await fetch('/api/invoice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2258,8 +2264,24 @@ export default function App() {
           })
         });
 
-        const data = await response.json();
-        if (data.error) { showToast('PDF generation failed: ' + data.error, 'error'); return; }
+        console.log('Response status:', response.status);
+        const text = await response.text();
+        console.log('Response text:', text.substring(0, 200));
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(e) {
+          showToast('Server error: ' + text.substring(0, 100), 'error');
+          setGenerating(false);
+          return;
+        }
+
+        if (data.error) {
+          showToast('PDF error: ' + data.error, 'error');
+          setGenerating(false);
+          return;
+        }
 
         // Download the PDF
         const bytes = Uint8Array.from(atob(data.pdf), c => c.charCodeAt(0));
@@ -2268,11 +2290,14 @@ export default function App() {
         const a = document.createElement('a');
         a.href = url;
         a.download = `Invoice_Package_${inv.invoiceNumber}.pdf`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
         showToast(`✅ Invoice Package #${inv.invoiceNumber} downloaded!`);
         setPackageInv(null); setPackageRateSheets([]); setPackageBols([]);
       } catch(e) {
+        console.error('Generate error:', e);
         showToast('Error: ' + e.message, 'error');
       }
       setGenerating(false);
